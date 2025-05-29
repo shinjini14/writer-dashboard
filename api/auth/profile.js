@@ -1,4 +1,4 @@
-// Vercel serverless function for authentication
+// Vercel serverless function for user profile/token verification
 export default function handler(req, res) {
   // Enable CORS
   res.setHeader('Access-Control-Allow-Credentials', true);
@@ -6,7 +6,7 @@ export default function handler(req, res) {
   res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
   res.setHeader(
     'Access-Control-Allow-Headers',
-    'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version'
+    'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization'
   );
 
   if (req.method === 'OPTIONS') {
@@ -14,33 +14,34 @@ export default function handler(req, res) {
     return;
   }
 
-  if (req.method !== 'POST') {
+  if (req.method !== 'GET') {
     return res.status(405).json({ message: 'Method not allowed' });
   }
 
-  const { email, password } = req.body;
+  // Get authorization header
+  const authHeader = req.headers.authorization;
+  const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
 
-  // Mock authentication - replace with real authentication logic
-  if (email === 'writer@example.com' && password === 'password') {
+  if (!token) {
+    return res.status(401).json({ message: 'No token provided' });
+  }
+
+  // Mock token verification - in a real app, you'd verify the JWT
+  if (token.startsWith('mock-jwt-token-')) {
     const user = {
       id: 1,
       email: 'writer@example.com',
       name: 'Writer User'
     };
 
-    // In a real app, you'd generate a JWT token here
-    const token = 'mock-jwt-token-' + Date.now();
-
     res.status(200).json({
       success: true,
-      user,
-      token,
-      message: 'Login successful'
+      user
     });
   } else {
     res.status(401).json({
       success: false,
-      message: 'Invalid credentials'
+      message: 'Invalid token'
     });
   }
 }
