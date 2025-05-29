@@ -53,41 +53,74 @@ const PreviousSubmissions = ({
     handleSortClose();
   };
 
-  // Status color mapping with better production compatibility
-  const statusColors = {
-    'Posted': '#4CAF50',     // Green for success
-    'Rejected': '#F44336',   // Red for rejection
-    'Pending': '#FF9800',    // Orange for pending
-    'Under Review': '#2196F3', // Blue for under review
-    'Draft': '#9E9E9E',      // Gray for draft
+  // Static color definitions for production compatibility
+  const STATUS_COLORS = {
+    'Posted': {
+      base: '#4CAF50',
+      bg: 'rgba(76, 175, 80, 0.05)',
+      border: 'rgba(76, 175, 80, 0.2)',
+      hoverBg: 'rgba(76, 175, 80, 0.1)',
+      hoverBorder: 'rgba(76, 175, 80, 0.4)',
+      shadow: 'rgba(76, 175, 80, 0.3)',
+      chipShadow: 'rgba(76, 175, 80, 0.4)',
+      chipHoverShadow: 'rgba(76, 175, 80, 0.6)',
+    },
+    'Rejected': {
+      base: '#F44336',
+      bg: 'rgba(244, 67, 54, 0.05)',
+      border: 'rgba(244, 67, 54, 0.2)',
+      hoverBg: 'rgba(244, 67, 54, 0.1)',
+      hoverBorder: 'rgba(244, 67, 54, 0.4)',
+      shadow: 'rgba(244, 67, 54, 0.3)',
+      chipShadow: 'rgba(244, 67, 54, 0.4)',
+      chipHoverShadow: 'rgba(244, 67, 54, 0.6)',
+    },
+    'Pending': {
+      base: '#FF9800',
+      bg: 'rgba(255, 152, 0, 0.05)',
+      border: 'rgba(255, 152, 0, 0.2)',
+      hoverBg: 'rgba(255, 152, 0, 0.1)',
+      hoverBorder: 'rgba(255, 152, 0, 0.4)',
+      shadow: 'rgba(255, 152, 0, 0.3)',
+      chipShadow: 'rgba(255, 152, 0, 0.4)',
+      chipHoverShadow: 'rgba(255, 152, 0, 0.6)',
+    },
+    'Under Review': {
+      base: '#2196F3',
+      bg: 'rgba(33, 150, 243, 0.05)',
+      border: 'rgba(33, 150, 243, 0.2)',
+      hoverBg: 'rgba(33, 150, 243, 0.1)',
+      hoverBorder: 'rgba(33, 150, 243, 0.4)',
+      shadow: 'rgba(33, 150, 243, 0.3)',
+      chipShadow: 'rgba(33, 150, 243, 0.4)',
+      chipHoverShadow: 'rgba(33, 150, 243, 0.6)',
+    },
+    'Draft': {
+      base: '#9E9E9E',
+      bg: 'rgba(158, 158, 158, 0.05)',
+      border: 'rgba(158, 158, 158, 0.2)',
+      hoverBg: 'rgba(158, 158, 158, 0.1)',
+      hoverBorder: 'rgba(158, 158, 158, 0.4)',
+      shadow: 'rgba(158, 158, 158, 0.3)',
+      chipShadow: 'rgba(158, 158, 158, 0.4)',
+      chipHoverShadow: 'rgba(158, 158, 158, 0.6)',
+    },
   };
 
-  const getStatusColor = (status) => {
-    return statusColors[status] || '#666';
+  // Fallback colors for unknown statuses
+  const DEFAULT_COLORS = {
+    base: '#666',
+    bg: 'rgba(102, 102, 102, 0.05)',
+    border: 'rgba(102, 102, 102, 0.2)',
+    hoverBg: 'rgba(102, 102, 102, 0.1)',
+    hoverBorder: 'rgba(102, 102, 102, 0.4)',
+    shadow: 'rgba(102, 102, 102, 0.3)',
+    chipShadow: 'rgba(102, 102, 102, 0.4)',
+    chipHoverShadow: 'rgba(102, 102, 102, 0.6)',
   };
 
-  const getStatusColorWithOpacity = (status, opacity = 0.1) => {
-    const color = getStatusColor(status);
-    // Convert hex to rgba
-    const r = parseInt(color.slice(1, 3), 16);
-    const g = parseInt(color.slice(3, 5), 16);
-    const b = parseInt(color.slice(5, 7), 16);
-    return `rgba(${r}, ${g}, ${b}, ${opacity})`;
-  };
-
-  // Pre-calculate all color variations for better performance
   const getStatusStyles = (status) => {
-    const baseColor = getStatusColor(status);
-    return {
-      baseColor,
-      bgColor: getStatusColorWithOpacity(status, 0.05),
-      borderColor: getStatusColorWithOpacity(status, 0.2),
-      hoverBgColor: getStatusColorWithOpacity(status, 0.1),
-      hoverBorderColor: getStatusColorWithOpacity(status, 0.4),
-      shadowColor: getStatusColorWithOpacity(status, 0.3),
-      chipShadow: getStatusColorWithOpacity(status, 0.4),
-      chipHoverShadow: getStatusColorWithOpacity(status, 0.6),
-    };
+    return STATUS_COLORS[status] || DEFAULT_COLORS;
   };
 
   const filteredSubmissions = submissions.filter(submission => {
@@ -110,6 +143,81 @@ const PreviousSubmissions = ({
 
   return (
     <Box>
+      {/* Inline CSS for production fallback */}
+      <style>
+        {`
+          .status-posted {
+            background-color: rgba(76, 175, 80, 0.05) !important;
+            border-color: rgba(76, 175, 80, 0.2) !important;
+          }
+          .status-posted::before {
+            background-color: #4CAF50 !important;
+          }
+          .status-posted::after {
+            background-color: #4CAF50 !important;
+          }
+          .status-rejected {
+            background-color: rgba(244, 67, 54, 0.05) !important;
+            border-color: rgba(244, 67, 54, 0.2) !important;
+          }
+          .status-rejected::before {
+            background-color: #F44336 !important;
+          }
+          .status-rejected::after {
+            background-color: #F44336 !important;
+          }
+          .status-pending {
+            background-color: rgba(255, 152, 0, 0.05) !important;
+            border-color: rgba(255, 152, 0, 0.2) !important;
+          }
+          .status-pending::before {
+            background-color: #FF9800 !important;
+          }
+          .status-pending::after {
+            background-color: #FF9800 !important;
+          }
+          .status-under-review {
+            background-color: rgba(33, 150, 243, 0.05) !important;
+            border-color: rgba(33, 150, 243, 0.2) !important;
+          }
+          .status-under-review::before {
+            background-color: #2196F3 !important;
+          }
+          .status-under-review::after {
+            background-color: #2196F3 !important;
+          }
+          .status-draft {
+            background-color: rgba(158, 158, 158, 0.05) !important;
+            border-color: rgba(158, 158, 158, 0.2) !important;
+          }
+          .status-draft::before {
+            background-color: #9E9E9E !important;
+          }
+          .status-draft::after {
+            background-color: #9E9E9E !important;
+          }
+          .chip-posted {
+            background-color: #4CAF50 !important;
+            border-color: #4CAF50 !important;
+          }
+          .chip-rejected {
+            background-color: #F44336 !important;
+            border-color: #F44336 !important;
+          }
+          .chip-pending {
+            background-color: #FF9800 !important;
+            border-color: #FF9800 !important;
+          }
+          .chip-under-review {
+            background-color: #2196F3 !important;
+            border-color: #2196F3 !important;
+          }
+          .chip-draft {
+            background-color: #9E9E9E !important;
+            border-color: #9E9E9E !important;
+          }
+        `}
+      </style>
       {/* Modern Header */}
       <Box sx={{
         display: 'flex',
@@ -305,24 +413,30 @@ const PreviousSubmissions = ({
           {sortedSubmissions.map((submission) => {
             // Pre-calculate all colors using the optimized function
             const styles = getStatusStyles(submission.status);
+            // Generate CSS class name for fallback
+            const statusClass = `status-${submission.status.toLowerCase().replace(' ', '-')}`;
+            const chipClass = `chip-${submission.status.toLowerCase().replace(' ', '-')}`;
 
             return (
               <Box
                 key={submission.id}
-                sx={{
-                  bgcolor: styles.bgColor,
-                  backdropFilter: 'blur(10px)',
-                  p: 3,
+                className={statusClass}
+                style={{
+                  backgroundColor: styles.bg,
+                  border: `1px solid ${styles.border}`,
                   borderRadius: '16px',
-                  border: `1px solid ${styles.borderColor}`,
+                  padding: '24px',
                   position: 'relative',
                   overflow: 'hidden',
                   transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                  backdropFilter: 'blur(10px)',
+                }}
+                sx={{
                   '&:hover': {
-                    bgcolor: styles.hoverBgColor,
-                    borderColor: styles.hoverBorderColor,
+                    bgcolor: styles.hoverBg,
+                    borderColor: styles.hoverBorder,
                     transform: 'translateY(-2px)',
-                    boxShadow: `0 8px 32px ${styles.shadowColor}`,
+                    boxShadow: `0 8px 32px ${styles.shadow}`,
                   },
                   '&::before': {
                     content: '""',
@@ -331,7 +445,7 @@ const PreviousSubmissions = ({
                     left: 0,
                     right: 0,
                     height: '4px',
-                    bgcolor: styles.baseColor,
+                    bgcolor: styles.base,
                     borderRadius: '16px 16px 0 0',
                   },
                   '&::after': {
@@ -341,7 +455,7 @@ const PreviousSubmissions = ({
                     left: 0,
                     width: '4px',
                     height: '100%',
-                    bgcolor: styles.baseColor,
+                    bgcolor: styles.base,
                     borderRadius: '16px 0 0 16px',
                   }
                 }}
@@ -367,15 +481,18 @@ const PreviousSubmissions = ({
                 <Chip
                   label={submission.status}
                   size="small"
-                  sx={{
-                    bgcolor: styles.baseColor,
+                  className={chipClass}
+                  style={{
+                    backgroundColor: styles.base,
                     color: 'white',
                     fontWeight: '600',
                     fontSize: '0.75rem',
                     height: '26px',
                     borderRadius: '13px',
+                    border: `1px solid ${styles.base}`,
                     boxShadow: `0 2px 8px ${styles.chipShadow}`,
-                    border: `1px solid ${styles.baseColor}`,
+                  }}
+                  sx={{
                     '& .MuiChip-label': {
                       px: 1.5
                     },
