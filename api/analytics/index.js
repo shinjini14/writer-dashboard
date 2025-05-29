@@ -1,5 +1,5 @@
 // Vercel serverless function for analytics
-module.exports = function handler(req, res) {
+export default function handler(req, res) {
   // Enable CORS
   res.setHeader('Access-Control-Allow-Credentials', true);
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -55,4 +55,4 @@ module.exports = function handler(req, res) {
   };
 
   res.status(200).json(analyticsData);
-};
+}

@@ -1,5 +1,6 @@
 // Vercel serverless function for submissions
-let submissions = [
+// Global variable to persist data across function calls (temporary solution)
+global.submissions = global.submissions || [
   {
     id: 1,
     title: "The Hero's Journey in Modern Cinema",
@@ -19,10 +20,20 @@ let submissions = [
     googleDocLink: "https://docs.google.com/document/d/example2",
     status: "accepted",
     createdAt: new Date(Date.now() - 86400000).toISOString()
+  },
+  {
+    id: 3,
+    title: "Modern Romance in Digital Age",
+    type: "TLDR",
+    number: "3",
+    structure: "Hero's Journey",
+    googleDocLink: "https://docs.google.com/document/d/example3",
+    status: "pending",
+    createdAt: new Date(Date.now() - 172800000).toISOString()
   }
 ];
 
-module.exports = function handler(req, res) {
+export default function handler(req, res) {
   // Enable CORS
   res.setHeader('Access-Control-Allow-Credentials', true);
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -39,7 +50,7 @@ module.exports = function handler(req, res) {
 
   if (req.method === 'GET') {
     // Return all submissions
-    res.status(200).json(submissions);
+    res.status(200).json(global.submissions);
   } else if (req.method === 'POST') {
     // Create new submission
     const { title, type, number, structure, googleDocLink } = req.body;
@@ -51,7 +62,7 @@ module.exports = function handler(req, res) {
     }
 
     const newSubmission = {
-      id: submissions.length + 1,
+      id: global.submissions.length + 1,
       title,
       type,
       number,
@@ -61,10 +72,10 @@ module.exports = function handler(req, res) {
       createdAt: new Date().toISOString()
     };
 
-    submissions.unshift(newSubmission);
+    global.submissions.unshift(newSubmission);
 
     res.status(201).json(newSubmission);
   } else {
     res.status(405).json({ message: 'Method not allowed' });
   }
-};
+}
