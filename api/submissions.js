@@ -1,4 +1,4 @@
-import jwt from 'jsonwebtoken';
+const jwt = require('jsonwebtoken');
 
 // Mock user database
 const users = [
@@ -228,7 +228,7 @@ let submissions = [
 // Authentication middleware
 function authenticateToken(req) {
   const token = req.headers.authorization?.split(' ')[1];
-  
+
   if (!token) {
     return null;
   }
@@ -242,7 +242,7 @@ function authenticateToken(req) {
 }
 
 // Vercel serverless function for submissions
-export default function handler(req, res) {
+module.exports = function handler(req, res) {
   // Enable CORS
   res.setHeader('Access-Control-Allow-Credentials', true);
   res.setHeader('Access-Control-Allow-Origin', '*');

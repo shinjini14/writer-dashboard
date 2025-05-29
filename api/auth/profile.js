@@ -1,4 +1,4 @@
-import jwt from 'jsonwebtoken';
+const jwt = require('jsonwebtoken');
 
 // Mock user database - matches server implementation
 const users = [
@@ -13,7 +13,7 @@ const users = [
 ];
 
 // Vercel serverless function for user profile/token verification
-export default function handler(req, res) {
+module.exports = function handler(req, res) {
   // Enable CORS
   res.setHeader('Access-Control-Allow-Credentials', true);
   res.setHeader('Access-Control-Allow-Origin', '*');
