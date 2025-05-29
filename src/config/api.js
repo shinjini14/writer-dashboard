@@ -1,6 +1,21 @@
 // API Configuration
+const getBaseUrl = () => {
+  // If environment variable is set, use it
+  if (import.meta.env.VITE_API_BASE_URL) {
+    return import.meta.env.VITE_API_BASE_URL;
+  }
+
+  // In production (deployed), use empty string for relative URLs
+  if (import.meta.env.PROD) {
+    return '';
+  }
+
+  // In development, use localhost
+  return 'http://localhost:5001';
+};
+
 export const API_CONFIG = {
-  BASE_URL: import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? window.location.origin : 'http://localhost:5001'),
+  BASE_URL: getBaseUrl(),
   ENDPOINTS: {
     AUTH: {
       LOGIN: '/api/auth/login',
@@ -31,7 +46,14 @@ export const API_CONFIG = {
 
 // Helper function to build full API URLs
 export const buildApiUrl = (endpoint) => {
-  return `${API_CONFIG.BASE_URL}${endpoint}`;
+  const fullUrl = `${API_CONFIG.BASE_URL}${endpoint}`;
+  console.log('API URL:', fullUrl, {
+    baseUrl: API_CONFIG.BASE_URL,
+    endpoint,
+    isProd: import.meta.env.PROD,
+    envVar: import.meta.env.VITE_API_BASE_URL
+  });
+  return fullUrl;
 };
 
 // App Configuration
