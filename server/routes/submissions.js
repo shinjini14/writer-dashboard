@@ -6,7 +6,7 @@ const router = express.Router();
 // Middleware to verify JWT token
 const authenticateToken = (req, res, next) => {
   const token = req.headers.authorization?.split(' ')[1];
-  
+
   if (!token) {
     return res.status(401).json({ message: 'No token provided' });
   }
@@ -62,8 +62,30 @@ let submissions = [
     number: 'Choose',
     structure: 'No structure selected',
     googleDocLink: 'https://docs.google.com/document/d/example4',
-    status: 'Pending',
+    status: 'Under Review',
     submittedOn: '4/15/2025',
+    userId: 1
+  },
+  {
+    id: 5,
+    title: '[TLDR] Amazing story about friendship',
+    type: 'TLDR',
+    number: '1',
+    structure: 'Classic structure',
+    googleDocLink: 'https://docs.google.com/document/d/example5',
+    status: 'Draft',
+    submittedOn: '4/10/2025',
+    userId: 1
+  },
+  {
+    id: 6,
+    title: '[Original] The mystery of the missing cat',
+    type: 'Original',
+    number: '2',
+    structure: 'Mystery structure',
+    googleDocLink: 'https://docs.google.com/document/d/example6',
+    status: 'Posted',
+    submittedOn: '4/5/2025',
     userId: 1
   }
 ];
@@ -81,14 +103,14 @@ router.get('/', authenticateToken, (req, res) => {
 // Get submission by ID
 router.get('/:id', authenticateToken, (req, res) => {
   try {
-    const submission = submissions.find(s => 
+    const submission = submissions.find(s =>
       s.id === parseInt(req.params.id) && s.userId === req.user.userId
     );
-    
+
     if (!submission) {
       return res.status(404).json({ message: 'Submission not found' });
     }
-    
+
     res.json(submission);
   } catch (error) {
     res.status(500).json({ message: 'Server error' });
@@ -99,7 +121,7 @@ router.get('/:id', authenticateToken, (req, res) => {
 router.post('/', authenticateToken, (req, res) => {
   try {
     const { title, type, number, structure, googleDocLink } = req.body;
-    
+
     const newSubmission = {
       id: submissions.length + 1,
       title,
@@ -111,7 +133,7 @@ router.post('/', authenticateToken, (req, res) => {
       submittedOn: new Date().toLocaleDateString(),
       userId: req.user.userId
     };
-    
+
     submissions.push(newSubmission);
     res.status(201).json(newSubmission);
   } catch (error) {
@@ -122,16 +144,16 @@ router.post('/', authenticateToken, (req, res) => {
 // Update submission
 router.put('/:id', authenticateToken, (req, res) => {
   try {
-    const submissionIndex = submissions.findIndex(s => 
+    const submissionIndex = submissions.findIndex(s =>
       s.id === parseInt(req.params.id) && s.userId === req.user.userId
     );
-    
+
     if (submissionIndex === -1) {
       return res.status(404).json({ message: 'Submission not found' });
     }
-    
+
     const { title, type, number, structure, googleDocLink, status } = req.body;
-    
+
     submissions[submissionIndex] = {
       ...submissions[submissionIndex],
       title: title || submissions[submissionIndex].title,
@@ -141,7 +163,7 @@ router.put('/:id', authenticateToken, (req, res) => {
       googleDocLink: googleDocLink || submissions[submissionIndex].googleDocLink,
       status: status || submissions[submissionIndex].status
     };
-    
+
     res.json(submissions[submissionIndex]);
   } catch (error) {
     res.status(500).json({ message: 'Server error' });
@@ -151,14 +173,14 @@ router.put('/:id', authenticateToken, (req, res) => {
 // Delete submission
 router.delete('/:id', authenticateToken, (req, res) => {
   try {
-    const submissionIndex = submissions.findIndex(s => 
+    const submissionIndex = submissions.findIndex(s =>
       s.id === parseInt(req.params.id) && s.userId === req.user.userId
     );
-    
+
     if (submissionIndex === -1) {
       return res.status(404).json({ message: 'Submission not found' });
     }
-    
+
     submissions.splice(submissionIndex, 1);
     res.json({ message: 'Submission deleted successfully' });
   } catch (error) {

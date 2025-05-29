@@ -19,7 +19,7 @@ const Login = () => {
   const [password, setPassword] = useState('password');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  
+
   const { login, user } = useAuth();
   const navigate = useNavigate();
 
@@ -36,10 +36,9 @@ const Login = () => {
 
     try {
       await login(email, password);
-      navigate('/dashboard');
+      // Navigation will be handled by useEffect when user state updates
     } catch (err) {
       setError(err.message);
-    } finally {
       setLoading(false);
     }
   };

@@ -15,6 +15,7 @@ import {
   Menu,
   MenuItem,
   Divider,
+  Button,
 } from '@mui/material';
 import {
   Dashboard as DashboardIcon,
@@ -24,6 +25,7 @@ import {
   BugReport as BugReportIcon,
   Logout as LogoutIcon,
   Edit as EditIcon,
+  Person as PersonIcon,
 } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext.jsx';
@@ -57,18 +59,17 @@ const Layout = ({ children }) => {
     }
   };
 
+  const handleLogout = () => {
+    logout();
+    navigate('/login');
+  };
+
   const handleProfileMenuOpen = (event) => {
     setAnchorEl(event.currentTarget);
   };
 
   const handleProfileMenuClose = () => {
     setAnchorEl(null);
-  };
-
-  const handleLogout = () => {
-    logout();
-    navigate('/login');
-    handleProfileMenuClose();
   };
 
   return (
@@ -113,28 +114,24 @@ const Layout = ({ children }) => {
         {/* User Info */}
         <Box sx={{ p: 2, borderBottom: '1px solid #444' }}>
           <Box display="flex" alignItems="center" gap={2}>
-            <Box
+            <Avatar
               sx={{
                 width: 40,
                 height: 40,
-                borderRadius: '50%',
-                bgcolor: '#555',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: '18px',
+                bgcolor: '#E6B800',
+                color: 'black',
                 fontWeight: 'bold',
-                color: 'white',
+                fontSize: '18px',
               }}
             >
-              L
-            </Box>
-            <Box>
+              {user?.avatar || user?.name?.charAt(0) || 'U'}
+            </Avatar>
+            <Box sx={{ flex: 1 }}>
               <Typography variant="body2" fontWeight="600" sx={{ color: 'white' }}>
-                Writer
+                {user?.name || 'Writer'}
               </Typography>
               <Typography variant="caption" sx={{ color: '#888' }}>
-                Login Paul
+                ID: {user?.writerId || 'N/A'}
               </Typography>
             </Box>
           </Box>
@@ -201,6 +198,35 @@ const Layout = ({ children }) => {
               </Typography>
             </Box>
           ))}
+
+          {/* Logout Button */}
+          <Box
+            onClick={handleLogout}
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 2,
+              p: 1.5,
+              mt: 1,
+              borderRadius: '8px',
+              cursor: 'pointer',
+              color: '#888',
+              borderTop: '1px solid #444',
+              pt: 2,
+              '&:hover': {
+                bgcolor: 'rgba(244, 67, 54, 0.1)',
+                color: '#ff6b6b',
+              },
+              transition: 'all 0.2s ease',
+            }}
+          >
+            <Box sx={{ color: 'inherit', fontSize: 16 }}>
+              <LogoutIcon />
+            </Box>
+            <Typography variant="body2" fontWeight="400" sx={{ color: 'inherit' }}>
+              Logout
+            </Typography>
+          </Box>
         </Box>
       </Drawer>
 

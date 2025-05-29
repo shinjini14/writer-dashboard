@@ -56,14 +56,27 @@ const PreviousSubmissions = ({
   const getStatusColor = (status) => {
     switch (status) {
       case 'Posted':
-        return '#4CAF50';
+        return '#4CAF50'; // Green for success
       case 'Rejected':
-        return '#00BCD4';
+        return '#F44336'; // Red for rejection
       case 'Pending':
-        return '#3F51B5';
+        return '#FF9800'; // Orange for pending
+      case 'Under Review':
+        return '#2196F3'; // Blue for under review
+      case 'Draft':
+        return '#9E9E9E'; // Gray for draft
       default:
         return '#666';
     }
+  };
+
+  const getStatusColorWithOpacity = (status, opacity = 0.1) => {
+    const color = getStatusColor(status);
+    // Convert hex to rgba
+    const r = parseInt(color.slice(1, 3), 16);
+    const g = parseInt(color.slice(3, 5), 16);
+    const b = parseInt(color.slice(5, 7), 16);
+    return `rgba(${r}, ${g}, ${b}, ${opacity})`;
   };
 
   const filteredSubmissions = submissions.filter(submission => {
@@ -193,7 +206,7 @@ const PreviousSubmissions = ({
           }
         }}
       >
-        {['All', 'Pending', 'Posted', 'Rejected'].map((filter) => (
+        {['All', 'Pending', 'Posted', 'Rejected', 'Under Review', 'Draft'].map((filter) => (
           <MenuItem
             key={filter}
             onClick={() => handleFilterChange(filter)}
@@ -278,23 +291,23 @@ const PreviousSubmissions = ({
         </Box>
       ) : (
         <Stack spacing={2.5}>
-          {sortedSubmissions.map((submission, index) => (
+          {sortedSubmissions.map((submission) => (
             <Box
               key={submission.id}
               sx={{
-                bgcolor: 'rgba(255, 255, 255, 0.03)',
+                bgcolor: getStatusColorWithOpacity(submission.status, 0.05),
                 backdropFilter: 'blur(10px)',
                 p: 3,
                 borderRadius: '16px',
-                border: '1px solid rgba(255, 255, 255, 0.08)',
+                border: `1px solid ${getStatusColorWithOpacity(submission.status, 0.2)}`,
                 position: 'relative',
                 overflow: 'hidden',
                 transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
                 '&:hover': {
-                  bgcolor: 'rgba(255, 255, 255, 0.06)',
-                  borderColor: 'rgba(230, 184, 0, 0.3)',
+                  bgcolor: getStatusColorWithOpacity(submission.status, 0.1),
+                  borderColor: getStatusColorWithOpacity(submission.status, 0.4),
                   transform: 'translateY(-2px)',
-                  boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)',
+                  boxShadow: `0 8px 32px ${getStatusColorWithOpacity(submission.status, 0.3)}`,
                 },
                 '&::before': {
                   content: '""',
@@ -302,9 +315,19 @@ const PreviousSubmissions = ({
                   top: 0,
                   left: 0,
                   right: 0,
-                  height: '3px',
+                  height: '4px',
                   bgcolor: getStatusColor(submission.status),
                   borderRadius: '16px 16px 0 0',
+                },
+                '&::after': {
+                  content: '""',
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: '4px',
+                  height: '100%',
+                  bgcolor: getStatusColor(submission.status),
+                  borderRadius: '16px 0 0 16px',
                 }
               }}
             >
@@ -334,11 +357,18 @@ const PreviousSubmissions = ({
                     color: 'white',
                     fontWeight: '600',
                     fontSize: '0.75rem',
-                    height: '24px',
-                    borderRadius: '12px',
+                    height: '26px',
+                    borderRadius: '13px',
+                    boxShadow: `0 2px 8px ${getStatusColorWithOpacity(submission.status, 0.4)}`,
+                    border: `1px solid ${getStatusColor(submission.status)}`,
                     '& .MuiChip-label': {
                       px: 1.5
-                    }
+                    },
+                    '&:hover': {
+                      transform: 'scale(1.05)',
+                      boxShadow: `0 4px 12px ${getStatusColorWithOpacity(submission.status, 0.6)}`,
+                    },
+                    transition: 'all 0.2s ease'
                   }}
                 />
               </Box>

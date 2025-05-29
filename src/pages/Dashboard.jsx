@@ -13,10 +13,12 @@ import {
 } from '@mui/material';
 import Layout from '../components/Layout.jsx';
 import PreviousSubmissions from '../components/PreviousSubmissions.jsx';
+import { useAuth } from '../contexts/AuthContext.jsx';
 import axios from 'axios';
 import { buildApiUrl, API_CONFIG } from '../config/api.js';
 
 const Dashboard = () => {
+  const { user } = useAuth();
   const [submissions, setSubmissions] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -98,10 +100,10 @@ const Dashboard = () => {
         {/* Welcome Header */}
         <Box sx={{ mb: 4, textAlign: 'left' }}>
           <Typography variant="h5" fontWeight="600" sx={{ color: 'white', mb: 0.5 }}>
-            Welcome, Steven Abreu! What are we writing today?
+            Welcome, {user?.name || 'Writer'}! What are we writing today?
           </Typography>
           <Typography variant="body2" sx={{ color: '#888' }}>
-            Writer ID: 74
+            Writer ID: {user?.writerId || 'N/A'}
           </Typography>
         </Box>
 
