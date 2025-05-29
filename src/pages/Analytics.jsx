@@ -20,6 +20,7 @@ import {
   Warning as WarningIcon
 } from '@mui/icons-material';
 import Layout from '../components/Layout.jsx';
+import { buildApiUrl, API_CONFIG } from '../config/api.js';
 import ChannelChart from '../components/ChannelChart.jsx';
 
 const Analytics = () => {
@@ -50,7 +51,7 @@ const Analytics = () => {
       // Get token from localStorage
       const token = localStorage.getItem('token');
 
-      const response = await fetch(`http://localhost:5001/api/analytics/channel?range=${dateRange}`, {
+      const response = await fetch(`${buildApiUrl(API_CONFIG.ENDPOINTS.ANALYTICS.OVERVIEW)}?range=${dateRange}`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
