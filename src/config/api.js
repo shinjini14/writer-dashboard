@@ -1,6 +1,6 @@
 // API Configuration
 export const API_CONFIG = {
-  BASE_URL: import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? 'https://your-backend-url.com' : 'http://localhost:5001'),
+  BASE_URL: import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : 'http://localhost:5001'),
   ENDPOINTS: {
     AUTH: {
       LOGIN: '/api/auth/login',
