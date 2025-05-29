@@ -1,22 +1,27 @@
 // API Configuration
 const getBaseUrl = () => {
-  // Check if we're running on localhost (development)
-  const isLocalhost = typeof window !== 'undefined' &&
-    (window.location.hostname === 'localhost' ||
-     window.location.hostname === '127.0.0.1');
+  // If we're in the browser, check the hostname
+  if (typeof window !== 'undefined') {
+    const hostname = window.location.hostname;
 
-  // If we're on localhost and have a local API URL, use it
-  if (isLocalhost && import.meta.env.VITE_API_BASE_URL &&
-      import.meta.env.VITE_API_BASE_URL.includes('localhost')) {
-    return import.meta.env.VITE_API_BASE_URL;
+    // If hostname contains vercel.app, we're definitely in production
+    if (hostname.includes('vercel.app')) {
+      console.log('🚀 Detected Vercel production, using relative URLs');
+      return '';
+    }
+
+    // If hostname is localhost, we're in development
+    if (hostname === 'localhost' || hostname === '127.0.0.1') {
+      console.log('🏠 Detected localhost, using local API server');
+      return import.meta.env.VITE_API_BASE_URL || 'http://localhost:5001';
+    }
+
+    // For any other domain, use relative URLs
+    console.log('🌐 Unknown domain, using relative URLs');
+    return '';
   }
 
-  // If we're on localhost but no local API URL, use default
-  if (isLocalhost) {
-    return 'http://localhost:5001';
-  }
-
-  // In production (not localhost), always use relative URLs
+  // Server-side rendering fallback
   return '';
 };
 
