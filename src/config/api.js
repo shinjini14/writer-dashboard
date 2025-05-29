@@ -11,7 +11,7 @@ const getBaseUrl = () => {
   }
 
   // In development, use localhost
-  return 'http://localhost:5001';
+  return '';
 };
 
 export const API_CONFIG = {
