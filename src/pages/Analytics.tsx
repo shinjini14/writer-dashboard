@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {
   Box,
-  Grid,
   Card,
   CardContent,
   Typography,
@@ -11,6 +10,7 @@ import {
   ListItemText,
   Chip,
 } from '@mui/material';
+import Grid from '@mui/material/Grid';
 import {
   TrendingUp as TrendingUpIcon,
   Assignment as AssignmentIcon,

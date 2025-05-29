@@ -1,4 +1,4 @@
-import React, { ReactNode } from 'react';
+import React, { type ReactNode } from 'react';
 import {
   Box,
   Drawer,
@@ -153,7 +153,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           </Box>
         </Toolbar>
         <Divider />
-        
+
         {/* User Info */}
         <Box sx={{ p: 2 }}>
           <Box display="flex" alignItems="center" gap={2}>
@@ -170,9 +170,9 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             </Box>
           </Box>
         </Box>
-        
+
         <Divider />
-        
+
         {/* Main Navigation */}
         <List>
           {menuItems.map((item) => (
@@ -199,7 +199,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             </ListItem>
           ))}
         </List>
-        
+
         {/* Bottom Navigation */}
         <Box sx={{ flexGrow: 1 }} />
         <List>
