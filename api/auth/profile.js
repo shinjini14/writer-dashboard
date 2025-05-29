@@ -1,3 +1,17 @@
+import jwt from 'jsonwebtoken';
+
+// Mock user database - matches server implementation
+const users = [
+  {
+    id: 1,
+    email: 'writer@example.com',
+    password: '$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', // password
+    name: 'Steven Abreu',
+    writerId: 74,
+    avatar: 'S'
+  }
+];
+
 // Vercel serverless function for user profile/token verification
 export default function handler(req, res) {
   // Enable CORS
@@ -18,30 +32,30 @@ export default function handler(req, res) {
     return res.status(405).json({ message: 'Method not allowed' });
   }
 
-  // Get authorization header
-  const authHeader = req.headers.authorization;
-  const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
+  try {
+    const token = req.headers.authorization?.split(' ')[1];
 
-  if (!token) {
-    return res.status(401).json({ message: 'No token provided' });
-  }
+    if (!token) {
+      return res.status(401).json({ message: 'No token provided' });
+    }
 
-  // Mock token verification - in a real app, you'd verify the JWT
-  if (token.startsWith('mock-jwt-token-')) {
-    const user = {
-      id: 1,
-      email: 'writer@example.com',
-      name: 'Writer User'
-    };
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'fallback_secret');
+    const user = users.find(u => u.id === decoded.userId);
 
-    res.status(200).json({
-      success: true,
-      user
+    if (!user) {
+      return res.status(401).json({ message: 'Invalid token' });
+    }
+
+    res.json({
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        writerId: user.writerId,
+        avatar: user.avatar
+      }
     });
-  } else {
-    res.status(401).json({
-      success: false,
-      message: 'Invalid token'
-    });
+  } catch (error) {
+    res.status(401).json({ message: 'Invalid token' });
   }
 }
