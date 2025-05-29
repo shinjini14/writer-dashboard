@@ -25,8 +25,13 @@ const getBaseUrl = () => {
   return '';
 };
 
+// Force recalculation of base URL on every access
 export const API_CONFIG = {
-  BASE_URL: getBaseUrl(),
+  get BASE_URL() {
+    const baseUrl = getBaseUrl();
+    console.log('🔧 API_CONFIG.BASE_URL accessed:', baseUrl);
+    return baseUrl;
+  },
   ENDPOINTS: {
     AUTH: {
       LOGIN: '/api/auth/login',
@@ -57,17 +62,28 @@ export const API_CONFIG = {
 
 // Helper function to build full API URLs
 export const buildApiUrl = (endpoint) => {
-  const fullUrl = `${API_CONFIG.BASE_URL}${endpoint}`;
+  // EMERGENCY OVERRIDE: If we're on vercel.app, ALWAYS use relative URLs
+  if (typeof window !== 'undefined' && window.location.hostname.includes('vercel.app')) {
+    console.log('🚨 VERCEL OVERRIDE: Using relative URL:', endpoint);
+    return endpoint;
+  }
+
+  // Get fresh base URL every time for non-Vercel environments
+  const baseUrl = getBaseUrl();
+  const fullUrl = `${baseUrl}${endpoint}`;
+
   console.log('🔗 API URL Debug:', {
     fullUrl,
-    baseUrl: API_CONFIG.BASE_URL,
+    baseUrl,
     endpoint,
     hostname: typeof window !== 'undefined' ? window.location.hostname : 'server',
     isProd: import.meta.env.PROD,
     isDev: import.meta.env.DEV,
     envVar: import.meta.env.VITE_API_BASE_URL,
-    mode: import.meta.env.MODE
+    mode: import.meta.env.MODE,
+    configBaseUrl: API_CONFIG.BASE_URL
   });
+
   return fullUrl;
 };
 
