@@ -22,7 +22,7 @@ let submissions = [
   }
 ];
 
-export default function handler(req, res) {
+module.exports = function handler(req, res) {
   // Enable CORS
   res.setHeader('Access-Control-Allow-Credentials', true);
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -45,8 +45,8 @@ export default function handler(req, res) {
     const { title, type, number, structure, googleDocLink } = req.body;
 
     if (!title || !type || !number || !structure || !googleDocLink) {
-      return res.status(400).json({ 
-        message: 'All fields are required' 
+      return res.status(400).json({
+        message: 'All fields are required'
       });
     }
 
@@ -67,4 +67,4 @@ export default function handler(req, res) {
   } else {
     res.status(405).json({ message: 'Method not allowed' });
   }
-}
+};

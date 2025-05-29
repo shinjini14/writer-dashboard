@@ -1,5 +1,5 @@
 // Vercel serverless function for authentication
-export default function handler(req, res) {
+module.exports = function handler(req, res) {
   // Enable CORS
   res.setHeader('Access-Control-Allow-Credentials', true);
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -43,4 +43,4 @@ export default function handler(req, res) {
       message: 'Invalid credentials'
     });
   }
-}
+};
