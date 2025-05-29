@@ -1,16 +1,22 @@
 // API Configuration
 const getBaseUrl = () => {
-  // If environment variable is set, use it
-  if (import.meta.env.VITE_API_BASE_URL) {
+  // Check if we're running on localhost (development)
+  const isLocalhost = typeof window !== 'undefined' &&
+    (window.location.hostname === 'localhost' ||
+     window.location.hostname === '127.0.0.1');
+
+  // If we're on localhost and have a local API URL, use it
+  if (isLocalhost && import.meta.env.VITE_API_BASE_URL &&
+      import.meta.env.VITE_API_BASE_URL.includes('localhost')) {
     return import.meta.env.VITE_API_BASE_URL;
   }
 
-  // In production (deployed), use empty string for relative URLs
-  if (import.meta.env.PROD) {
-    return '';
+  // If we're on localhost but no local API URL, use default
+  if (isLocalhost) {
+    return 'http://localhost:5001';
   }
 
-  // In development, use localhost
+  // In production (not localhost), always use relative URLs
   return '';
 };
 
@@ -47,11 +53,15 @@ export const API_CONFIG = {
 // Helper function to build full API URLs
 export const buildApiUrl = (endpoint) => {
   const fullUrl = `${API_CONFIG.BASE_URL}${endpoint}`;
-  console.log('API URL:', fullUrl, {
+  console.log('🔗 API URL Debug:', {
+    fullUrl,
     baseUrl: API_CONFIG.BASE_URL,
     endpoint,
+    hostname: typeof window !== 'undefined' ? window.location.hostname : 'server',
     isProd: import.meta.env.PROD,
-    envVar: import.meta.env.VITE_API_BASE_URL
+    isDev: import.meta.env.DEV,
+    envVar: import.meta.env.VITE_API_BASE_URL,
+    mode: import.meta.env.MODE
   });
   return fullUrl;
 };
