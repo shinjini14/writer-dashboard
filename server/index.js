@@ -185,10 +185,6 @@ app.get("/api/writer/videos", async (req, res) => {
     let influxService;
     try {
       const InfluxService = require('./services/influxService');
-      process.env.INFLUXDB_URL = 'https://us-east-1-1.aws.cloud2.influxdata.com';
-      process.env.INFLUXDB_TOKEN = 'ojNizGw1U0VID3ltz1khIx2aOQAHG0gIFEbR7VqVk6Ns23fzXOcJG-JxPkGKWL6lluFBQKdagMRbHm6-2iVHSw==';
-      process.env.INFLUXDB_ORG = 'engineering team';
-      process.env.INFLUXDB_BUCKET = 'youtube_api';
       influxService = new InfluxService();
       console.log('✅ InfluxDB service initialized for writer videos');
     } catch (error) {
@@ -1138,10 +1134,6 @@ app.get("/api/video/:id/analytics", async (req, res) => {
     let influxService;
     try {
       const InfluxService = require('./services/influxService');
-      process.env.INFLUXDB_URL = 'https://us-east-1-1.aws.cloud2.influxdata.com';
-      process.env.INFLUXDB_TOKEN = 'ojNizGw1U0VID3ltz1khIx2aOQAHG0gIFEbR7VqVk6Ns23fzXOcJG-JxPkGKWL6lluFBQKdagMRbHm6-2iVHSw==';
-      process.env.INFLUXDB_ORG = 'engineering team';
-      process.env.INFLUXDB_BUCKET = 'youtube_api';
       influxService = new InfluxService();
     } catch (error) {
       console.error('❌ Failed to initialize InfluxDB for video analytics:', error);
@@ -1277,11 +1269,11 @@ async function isRepost(url) {
 const { InfluxDB } = require('@influxdata/influxdb-client');
 
 const influxDB = new InfluxDB({
-  url: process.env.INFLUXDB_URL || 'https://us-east-1-1.aws.cloud2.influxdata.com',
-  token: process.env.INFLUXDB_TOKEN || 'ojNizGw1U0VID3ltz1khIx2aOQAHG0gIFEbR7VqVk6Ns23fzXOcJG-JxPkGKWL6lluFBQKdagMRbHm6-2iVHSw==',
+  url: process.env.INFLUXDB_URL,
+  token: process.env.INFLUXDB_TOKEN,
 });
-const org = process.env.INFLUXDB_ORG || 'engineering team';
-const bucket = process.env.INFLUXDB_BUCKET || 'youtube_api';
+const org = process.env.INFLUXDB_ORG;
+const bucket = process.env.INFLUXDB_BUCKET;
 
 // Helper function to query InfluxDB (using your existing pattern)
 const queryInfluxDB = async (query) => {
