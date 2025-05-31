@@ -30,5 +30,6 @@
     "server/index.js": {
       "maxDuration": 30
     }
-  }
+  },
+  "installCommand": "npm install && cd server && npm install"
 }
