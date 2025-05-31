@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Box,
@@ -10,9 +10,6 @@ import {
   Alert,
   Container,
   Avatar,
-  Fade,
-  Slide,
-  Zoom,
   IconButton,
   InputAdornment,
   Chip,
@@ -23,26 +20,22 @@ import {
   VisibilityOff,
   VideoLibrary,
   Analytics,
-  Dashboard,
   TrendingUp,
-  Star,
   PlayCircle
 } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext.jsx';
 
 const Login = () => {
-  const [username, setUsername] = useState('HannahMosk');
-  const [password, setPassword] = useState('Elijahthornberry3');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const [mounted, setMounted] = useState(false);
 
   const { login, user } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
-    setMounted(true);
     if (user) {
       navigate('/dashboard');
     }
