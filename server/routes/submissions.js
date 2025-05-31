@@ -3,6 +3,21 @@ const jwt = require('jsonwebtoken');
 
 const router = express.Router();
 
+// Initialize InfluxDB service
+let influxService;
+try {
+  const InfluxService = require('../services/influxService');
+  // Set credentials
+  process.env.INFLUXDB_URL = 'https://us-east-1-1.aws.cloud2.influxdata.com';
+  process.env.INFLUXDB_TOKEN = 'ojNizGw1U0VID3ltz1khIx2aOQAHG0gIFEbR7VqVk6Ns23fzXOcJG-JxPkGKWL6lluFBQKdagMRbHm6-2iVHSw==';
+  process.env.INFLUXDB_ORG = 'engineering team';
+  process.env.INFLUXDB_BUCKET = 'youtube_api';
+  influxService = new InfluxService();
+  console.log('✅ InfluxDB service initialized for submissions');
+} catch (error) {
+  console.error('❌ Failed to initialize InfluxDB for submissions:', error);
+}
+
 // Middleware to verify JWT token
 const authenticateToken = (req, res, next) => {
   const token = req.headers.authorization?.split(' ')[1];
@@ -233,12 +248,72 @@ let submissions = [
   }
 ];
 
-// Get all submissions for authenticated user
-router.get('/', authenticateToken, (req, res) => {
+// Get all submissions for authenticated user with real InfluxDB data
+router.get('/', authenticateToken, async (req, res) => {
   try {
+    const { range = '30d' } = req.query;
+    const userId = req.user.id;
+
+    console.log('📝 Getting submissions for user ID:', userId, 'Range:', range);
+
+    // Get writer information from PostgreSQL
+    let writerId = null;
+    try {
+      const pool = require('../config/database');
+      const writerQuery = `
+        SELECT w.id as writer_id
+        FROM writer w
+        WHERE w.login_id = $1
+      `;
+      const writerResult = await pool.query(writerQuery, [userId]);
+      if (writerResult.rows.length > 0) {
+        writerId = writerResult.rows[0].writer_id;
+        console.log('✅ Found writer ID:', writerId, 'for submissions');
+      } else {
+        console.log('⚠️ No writer found for user:', userId);
+      }
+    } catch (dbError) {
+      console.error('❌ Error getting writer ID for submissions:', dbError);
+    }
+
+    if (influxService) {
+      try {
+        // Get real submissions from InfluxDB filtered by writer
+        const realSubmissions = await influxService.getWriterSubmissions(writerId, range);
+
+        // Transform InfluxDB data to match frontend expectations
+        const transformedSubmissions = realSubmissions.map((submission, index) => ({
+          id: parseInt(submission.id) || index + 1,
+          title: submission.title,
+          type: 'YouTube Short', // Based on your data structure
+          number: submission.video_id,
+          structure: 'Video Content',
+          googleDocLink: submission.url,
+          status: submission.status, // 'Posted' for published videos
+          submittedOn: new Date(submission.submittedOn).toLocaleDateString(),
+          userId: req.user.userId,
+          views: submission.views,
+          writer_name: submission.writer_name,
+          video_id: submission.video_id
+        }));
+
+        console.log('📝 Real submissions data sent:', {
+          count: transformedSubmissions.length,
+          range
+        });
+
+        res.json(transformedSubmissions);
+        return;
+      } catch (influxError) {
+        console.error('❌ InfluxDB error in submissions, falling back to dummy data:', influxError);
+      }
+    }
+
+    // Fallback to dummy data if InfluxDB fails
     const userSubmissions = submissions.filter(s => s.userId === req.user.userId);
     res.json(userSubmissions);
   } catch (error) {
+    console.error('❌ Submissions endpoint error:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });

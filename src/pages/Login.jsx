@@ -31,8 +31,8 @@ import {
 import { useAuth } from '../contexts/AuthContext.jsx';
 
 const Login = () => {
-  const [email, setEmail] = useState('writer@example.com');
-  const [password, setPassword] = useState('password');
+  const [username, setUsername] = useState('HannahMosk');
+  const [password, setPassword] = useState('Elijahthornberry3');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -54,7 +54,7 @@ const Login = () => {
     setLoading(true);
 
     try {
-      await login(email, password);
+      await login(username, password);
       // Navigation will be handled by useEffect when user state updates
     } catch (err) {
       setError(err.message);
@@ -280,13 +280,13 @@ const Login = () => {
               <form onSubmit={handleSubmit}>
                 <TextField
                   fullWidth
-                  label="Email Address"
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  label="Username"
+                  type="text"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
                   margin="normal"
                   required
-                  autoComplete="email"
+                  autoComplete="username"
                   autoFocus
                   sx={{
                     '& .MuiOutlinedInput-root': {
@@ -414,7 +414,7 @@ const Login = () => {
                 </Button>
               </form>
 
-            
+
             </CardContent>
           </Card>
 
@@ -430,7 +430,7 @@ const Login = () => {
                 gap: 1,
               }}
             >
-           
+
             </Typography>
           </Box>
         </Box>

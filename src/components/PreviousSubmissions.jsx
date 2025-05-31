@@ -9,13 +9,21 @@ import {
   IconButton,
   CircularProgress,
   Stack,
+  TextField,
+  InputAdornment,
+  Divider,
 } from '@mui/material';
 import {
   FilterList as FilterIcon,
   Sort as SortIcon,
   Description as DocIcon,
   Refresh as RefreshIcon,
+  Search as SearchIcon,
+  DateRange as DateRangeIcon,
 } from '@mui/icons-material';
+import { DatePicker } from '@mui/x-date-pickers/DatePicker';
+import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
+import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
 
 const PreviousSubmissions = ({
   submissions,
@@ -26,6 +34,13 @@ const PreviousSubmissions = ({
   const [sortAnchorEl, setSortAnchorEl] = useState(null);
   const [statusFilter, setStatusFilter] = useState('All');
   const [sortBy, setSortBy] = useState('Date');
+
+  // Enhanced filter state from reference
+  const [filter, setFilter] = useState('');
+  const [searchTitle, setSearchTitle] = useState('');
+  const [startDate, setStartDate] = useState(null);
+  const [endDate, setEndDate] = useState(null);
+  const [sortOrder, setSortOrder] = useState('desc');
 
   const handleFilterClick = (event) => {
     setFilterAnchorEl(event.currentTarget);
@@ -123,23 +138,74 @@ const PreviousSubmissions = ({
     return STATUS_COLORS[status] || DEFAULT_COLORS;
   };
 
-  const filteredSubmissions = submissions.filter(submission => {
-    if (statusFilter === 'All') return true;
-    return submission.status === statusFilter;
-  });
-
-  const sortedSubmissions = [...filteredSubmissions].sort((a, b) => {
-    switch (sortBy) {
-      case 'Date':
-        return new Date(b.submittedOn).getTime() - new Date(a.submittedOn).getTime();
-      case 'Title':
-        return a.title.localeCompare(b.title);
-      case 'Status':
-        return a.status.localeCompare(b.status);
-      default:
-        return 0;
+  // Status mapping function for your API data
+  const getStatusDisplay = (status) => {
+    if (!status || typeof status !== 'string') {
+      return "Unknown";
     }
-  });
+    const normalizedStatus = status.trim().toLowerCase();
+    switch (normalizedStatus) {
+      case "approved script. ready for production":
+      case "writer submissions (qa)":
+      case "finished video":
+      case "pending":
+        return "Pending";
+      case "rejected":
+        return "Rejected";
+      case "posted":
+        return "Posted";
+      default:
+        return "Pending"; // Default to Pending for unknown statuses
+    }
+  };
+
+  // Enhanced filtering logic from reference
+  const filterSubmissions = () => {
+    let filteredSubmissions = [...submissions];
+
+    // Reset filters for "Show All"
+    if (filter === "Show All") {
+      setStatusFilter(""); // Reset the status filter to show all statuses
+      return [...submissions]; // Return all scripts without further filtering
+    }
+
+    // Filter by Title
+    if (filter === "Title") {
+      filteredSubmissions = filteredSubmissions.filter((submission) =>
+        submission.title.toLowerCase().includes(searchTitle.toLowerCase())
+      );
+    }
+
+    // Filter by Custom Date Range (using created_at from your API)
+    if (filter === "Custom") {
+      filteredSubmissions = filteredSubmissions.filter((submission) => {
+        const submissionDate = new Date(submission.created_at);
+        return startDate && endDate
+          ? submissionDate >= startDate && submissionDate <= endDate
+          : true;
+      });
+    }
+
+    // Filter by Status (using approval_status from your API)
+    if (statusFilter && statusFilter !== 'All' && statusFilter !== "All Statuses") {
+      filteredSubmissions = filteredSubmissions.filter(
+        (submission) => getStatusDisplay(submission.approval_status) === statusFilter
+      );
+    }
+
+    // Sort by date based on sortOrder (using created_at from your API)
+    filteredSubmissions.sort((a, b) => {
+      const dateA = new Date(a.created_at);
+      const dateB = new Date(b.created_at);
+      return sortOrder === "desc"
+        ? dateB.getTime() - dateA.getTime()
+        : dateA.getTime() - dateB.getTime();
+    });
+
+    return filteredSubmissions;
+  };
+
+  const sortedSubmissions = filterSubmissions();
 
   return (
     <Box>
@@ -309,66 +375,175 @@ const PreviousSubmissions = ({
         </Box>
       </Box>
 
-      {/* Modern Filter Menu */}
+      {/* Enhanced Filter Menu */}
       <Menu
         anchorEl={filterAnchorEl}
         open={Boolean(filterAnchorEl)}
         onClose={handleFilterClose}
-        PaperProps={{
-          sx: {
-            bgcolor: '#1a1a1a',
-            border: '1px solid rgba(255, 255, 255, 0.1)',
-            borderRadius: '12px',
-            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.4)',
-            backdropFilter: 'blur(10px)',
-            mt: 1
+        slotProps={{
+          paper: {
+            sx: {
+              bgcolor: '#1a1a1a',
+              border: '1px solid rgba(255, 255, 255, 0.1)',
+              borderRadius: '12px',
+              boxShadow: '0 8px 32px rgba(0, 0, 0, 0.4)',
+              backdropFilter: 'blur(10px)',
+              mt: 1,
+              minWidth: '250px'
+            }
           }
         }}
       >
-        {['All', 'Pending', 'Posted', 'Rejected', 'Under Review', 'Draft'].map((filter) => (
-          <MenuItem
-            key={filter}
-            onClick={() => handleFilterChange(filter)}
-            selected={statusFilter === filter}
-            sx={{
-              color: 'white',
-              fontSize: '0.9rem',
-              py: 1.5,
-              px: 2,
-              '&.Mui-selected': {
-                bgcolor: 'rgba(230, 184, 0, 0.2)',
-                color: '#E6B800',
-                fontWeight: '600'
-              },
-              '&:hover': {
-                bgcolor: 'rgba(255, 255, 255, 0.08)',
-                transform: 'translateX(4px)'
-              },
-              transition: 'all 0.2s ease'
-            }}
-          >
-            {filter}
-          </MenuItem>
-        ))}
+        <MenuItem
+          onClick={() => setFilter("")}
+          sx={{
+            color: 'white',
+            fontSize: '0.9rem',
+            py: 1.5,
+            px: 2,
+            '&:hover': {
+              bgcolor: 'rgba(255, 255, 255, 0.08)',
+              transform: 'translateX(4px)'
+            },
+            transition: 'all 0.2s ease'
+          }}
+        >
+          Show All
+        </MenuItem>
+        <MenuItem
+          onClick={() => setFilter("Custom")}
+          sx={{
+            color: 'white',
+            fontSize: '0.9rem',
+            py: 1.5,
+            px: 2,
+            '&:hover': {
+              bgcolor: 'rgba(255, 255, 255, 0.08)',
+              transform: 'translateX(4px)'
+            },
+            transition: 'all 0.2s ease'
+          }}
+        >
+          Custom Date
+        </MenuItem>
+        <MenuItem
+          onClick={() => setFilter("Title")}
+          sx={{
+            color: 'white',
+            fontSize: '0.9rem',
+            py: 1.5,
+            px: 2,
+            '&:hover': {
+              bgcolor: 'rgba(255, 255, 255, 0.08)',
+              transform: 'translateX(4px)'
+            },
+            transition: 'all 0.2s ease'
+          }}
+        >
+          Title
+        </MenuItem>
+        <Divider sx={{ borderColor: 'rgba(255, 255, 255, 0.1)' }} />
+        <MenuItem
+          onClick={() => setStatusFilter("")}
+          sx={{
+            color: 'white',
+            fontSize: '0.9rem',
+            py: 1.5,
+            px: 2,
+            '&:hover': {
+              bgcolor: 'rgba(255, 255, 255, 0.08)',
+              transform: 'translateX(4px)'
+            },
+            transition: 'all 0.2s ease'
+          }}
+        >
+          All Statuses
+        </MenuItem>
+        <MenuItem
+          onClick={() => setStatusFilter("Rejected")}
+          sx={{
+            color: 'white',
+            fontSize: '0.9rem',
+            py: 1.5,
+            px: 2,
+            '&:hover': {
+              bgcolor: 'rgba(255, 255, 255, 0.08)',
+              transform: 'translateX(4px)'
+            },
+            transition: 'all 0.2s ease'
+          }}
+        >
+          Rejected
+        </MenuItem>
+        <MenuItem
+          onClick={() => setStatusFilter("Pending")}
+          sx={{
+            color: 'white',
+            fontSize: '0.9rem',
+            py: 1.5,
+            px: 2,
+            '&:hover': {
+              bgcolor: 'rgba(255, 255, 255, 0.08)',
+              transform: 'translateX(4px)'
+            },
+            transition: 'all 0.2s ease'
+          }}
+        >
+          Pending
+        </MenuItem>
+        <MenuItem
+          onClick={() => setStatusFilter("Posted")}
+          sx={{
+            color: 'white',
+            fontSize: '0.9rem',
+            py: 1.5,
+            px: 2,
+            '&:hover': {
+              bgcolor: 'rgba(255, 255, 255, 0.08)',
+              transform: 'translateX(4px)'
+            },
+            transition: 'all 0.2s ease'
+          }}
+        >
+          Posted
+        </MenuItem>
       </Menu>
 
-      {/* Modern Sort Menu */}
+      {/* Enhanced Sort Menu */}
       <Menu
         anchorEl={sortAnchorEl}
         open={Boolean(sortAnchorEl)}
         onClose={handleSortClose}
-        PaperProps={{
-          sx: {
-            bgcolor: '#1a1a1a',
-            border: '1px solid rgba(255, 255, 255, 0.1)',
-            borderRadius: '12px',
-            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.4)',
-            backdropFilter: 'blur(10px)',
-            mt: 1
+        slotProps={{
+          paper: {
+            sx: {
+              bgcolor: '#1a1a1a',
+              border: '1px solid rgba(255, 255, 255, 0.1)',
+              borderRadius: '12px',
+              boxShadow: '0 8px 32px rgba(0, 0, 0, 0.4)',
+              backdropFilter: 'blur(10px)',
+              mt: 1
+            }
           }
         }}
       >
-        {['Date', 'Title', 'Status'].map((sort) => (
+        <MenuItem
+          onClick={() => setSortOrder(sortOrder === "desc" ? "asc" : "desc")}
+          sx={{
+            color: 'white',
+            fontSize: '0.9rem',
+            py: 1.5,
+            px: 2,
+            '&:hover': {
+              bgcolor: 'rgba(255, 255, 255, 0.08)',
+              transform: 'translateX(4px)'
+            },
+            transition: 'all 0.2s ease'
+          }}
+        >
+          Sort By Date ({sortOrder === "desc" ? "Newest First" : "Oldest First"})
+        </MenuItem>
+        {['Title', 'Status'].map((sort) => (
           <MenuItem
             key={sort}
             onClick={() => handleSortChange(sort)}
@@ -395,6 +570,100 @@ const PreviousSubmissions = ({
         ))}
       </Menu>
 
+      {/* Search by Title Filter */}
+      {filter === "Title" && (
+        <Box sx={{ mb: 3 }}>
+          <TextField
+            fullWidth
+            placeholder="Search by title"
+            value={searchTitle}
+            onChange={(e) => setSearchTitle(e.target.value)}
+            size="small"
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon sx={{ color: 'rgba(255, 255, 255, 0.5)' }} />
+                </InputAdornment>
+              ),
+            }}
+            sx={{
+              '& .MuiOutlinedInput-root': {
+                bgcolor: '#2A2A2A',
+                border: '1px solid #555',
+                '& fieldset': { border: 'none' },
+                '&:hover fieldset': { border: 'none' },
+                '&.Mui-focused fieldset': { border: '1px solid #E6B800' },
+              },
+              '& .MuiInputBase-input': { color: 'white' },
+            }}
+          />
+        </Box>
+      )}
+
+      {/* Custom Date Range Filter */}
+      {filter === "Custom" && (
+        <LocalizationProvider dateAdapter={AdapterDayjs}>
+          <Box sx={{ mb: 3, display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+            <DatePicker
+              label="Start Date"
+              value={startDate}
+              onChange={(date) => setStartDate(date)}
+              slotProps={{
+                textField: {
+                  size: 'small',
+                  sx: {
+                    '& .MuiOutlinedInput-root': {
+                      bgcolor: '#2A2A2A',
+                      border: '1px solid #555',
+                      '& fieldset': { border: 'none' },
+                      '&:hover fieldset': { border: 'none' },
+                      '&.Mui-focused fieldset': { border: '1px solid #E6B800' },
+                    },
+                    '& .MuiInputBase-input': { color: 'white' },
+                    '& .MuiInputLabel-root': { color: 'rgba(255, 255, 255, 0.7)' },
+                    '& .MuiSvgIcon-root': { color: 'rgba(255, 255, 255, 0.7)' },
+                  }
+                }
+              }}
+            />
+            <DatePicker
+              label="End Date"
+              value={endDate}
+              onChange={(date) => setEndDate(date)}
+              slotProps={{
+                textField: {
+                  size: 'small',
+                  sx: {
+                    '& .MuiOutlinedInput-root': {
+                      bgcolor: '#2A2A2A',
+                      border: '1px solid #555',
+                      '& fieldset': { border: 'none' },
+                      '&:hover fieldset': { border: 'none' },
+                      '&.Mui-focused fieldset': { border: '1px solid #E6B800' },
+                    },
+                    '& .MuiInputBase-input': { color: 'white' },
+                    '& .MuiInputLabel-root': { color: 'rgba(255, 255, 255, 0.7)' },
+                    '& .MuiSvgIcon-root': { color: 'rgba(255, 255, 255, 0.7)' },
+                  }
+                }
+              }}
+            />
+            <Button
+              variant="contained"
+              onClick={() => setFilter("Custom")}
+              sx={{
+                bgcolor: '#E6B800',
+                color: 'black',
+                fontWeight: '600',
+                '&:hover': { bgcolor: '#D4A600' },
+              }}
+            >
+              Apply
+            </Button>
+          </Box>
+        </LocalizationProvider>
+      )}
+
       {loading ? (
         <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
           <CircularProgress
@@ -411,11 +680,22 @@ const PreviousSubmissions = ({
       ) : (
         <Stack spacing={2.5}>
           {sortedSubmissions.map((submission) => {
-            // Pre-calculate all colors using the optimized function
-            const styles = getStatusStyles(submission.status);
+            // Use mapped status for styling (using approval_status from your API)
+            const displayStatus = getStatusDisplay(submission.approval_status);
+            const styles = getStatusStyles(displayStatus);
             // Generate CSS class name for fallback
-            const statusClass = `status-${submission.status.toLowerCase().replace(' ', '-')}`;
-            const chipClass = `chip-${submission.status.toLowerCase().replace(' ', '-')}`;
+            const statusClass = `status-${displayStatus.toLowerCase().replace(' ', '-')}`;
+            const chipClass = `chip-${displayStatus.toLowerCase().replace(' ', '-')}`;
+
+            // Parse title to extract type and number (assuming format like "[Trope 1] Title")
+            const titleParts = submission.title.match(/^\[([^\]]+)\]\s*(.*)$/);
+            const typeAndNumber = titleParts ? titleParts[1] : '';
+            const cleanTitle = titleParts ? titleParts[2] : submission.title;
+
+            // Extract type and number from the prefix
+            const typeMatch = typeAndNumber.match(/^(Trope|Original|Re-write|STL)(?:\s+(\d+))?/);
+            const type = typeMatch ? typeMatch[1] : 'Unknown';
+            const number = typeMatch && typeMatch[2] ? typeMatch[2] : '';
 
             return (
               <Box
@@ -476,10 +756,10 @@ const PreviousSubmissions = ({
                     overflow: 'hidden',
                   }}
                 >
-                  {submission.title}
+                  {cleanTitle || submission.title}
                 </Typography>
                 <Chip
-                  label={submission.status}
+                  label={displayStatus}
                   size="small"
                   className={chipClass}
                   style={{
@@ -513,66 +793,98 @@ const PreviousSubmissions = ({
                   fontSize: '0.85rem'
                 }}
               >
-                Submitted on {submission.submittedOn}
+                Submitted on {new Date(submission.created_at).toLocaleDateString()}
               </Typography>
 
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <Box sx={{ display: 'flex', gap: 1.5 }}>
-                  <Chip
-                    label={submission.type}
-                    size="small"
-                    variant="outlined"
-                    sx={{
-                      borderColor: 'rgba(255, 255, 255, 0.2)',
-                      color: 'rgba(255, 255, 255, 0.8)',
-                      fontSize: '0.75rem',
-                      height: '28px',
-                      '&:hover': {
-                        borderColor: 'rgba(255, 255, 255, 0.4)',
-                        bgcolor: 'rgba(255, 255, 255, 0.05)'
-                      }
-                    }}
-                  />
-                  <Chip
-                    label={submission.number}
-                    size="small"
-                    variant="outlined"
-                    sx={{
-                      borderColor: 'rgba(255, 255, 255, 0.2)',
-                      color: 'rgba(255, 255, 255, 0.8)',
-                      fontSize: '0.75rem',
-                      height: '28px',
-                      '&:hover': {
-                        borderColor: 'rgba(255, 255, 255, 0.4)',
-                        bgcolor: 'rgba(255, 255, 255, 0.05)'
-                      }
-                    }}
-                  />
+                  {type && (
+                    <Chip
+                      label={type}
+                      size="small"
+                      variant="outlined"
+                      sx={{
+                        borderColor: 'rgba(255, 255, 255, 0.2)',
+                        color: 'rgba(255, 255, 255, 0.8)',
+                        fontSize: '0.75rem',
+                        height: '28px',
+                        '&:hover': {
+                          borderColor: 'rgba(255, 255, 255, 0.4)',
+                          bgcolor: 'rgba(255, 255, 255, 0.05)'
+                        }
+                      }}
+                    />
+                  )}
+                  {number && (
+                    <Chip
+                      label={`#${number}`}
+                      size="small"
+                      variant="outlined"
+                      sx={{
+                        borderColor: 'rgba(255, 255, 255, 0.2)',
+                        color: 'rgba(255, 255, 255, 0.8)',
+                        fontSize: '0.75rem',
+                        height: '28px',
+                        '&:hover': {
+                          borderColor: 'rgba(255, 255, 255, 0.4)',
+                          bgcolor: 'rgba(255, 255, 255, 0.05)'
+                        }
+                      }}
+                    />
+                  )}
                 </Box>
 
-                <Button
-                  startIcon={<DocIcon />}
-                  size="small"
-                  onClick={() => window.open(submission.googleDocLink, '_blank')}
-                  sx={{
-                    bgcolor: '#E6B800',
-                    color: 'black',
-                    fontWeight: '600',
-                    fontSize: '0.8rem',
-                    borderRadius: '10px',
-                    px: 2,
-                    py: 0.8,
-                    textTransform: 'none',
-                    '&:hover': {
-                      bgcolor: '#D4A600',
-                      transform: 'translateY(-1px)',
-                      boxShadow: '0 4px 12px rgba(230, 184, 0, 0.4)'
-                    },
-                    transition: 'all 0.2s ease'
-                  }}
-                >
-                  Open Doc
-                </Button>
+                <Box sx={{ display: 'flex', gap: 1 }}>
+                  {submission.google_doc_link && (
+                    <Button
+                      startIcon={<DocIcon />}
+                      size="small"
+                      onClick={() => window.open(submission.google_doc_link, '_blank')}
+                      sx={{
+                        bgcolor: '#E6B800',
+                        color: 'black',
+                        fontWeight: '600',
+                        fontSize: '0.8rem',
+                        borderRadius: '10px',
+                        px: 2,
+                        py: 0.8,
+                        textTransform: 'none',
+                        '&:hover': {
+                          bgcolor: '#D4A600',
+                          transform: 'translateY(-1px)',
+                          boxShadow: '0 4px 12px rgba(230, 184, 0, 0.4)'
+                        },
+                        transition: 'all 0.2s ease'
+                      }}
+                    >
+                      Open Doc
+                    </Button>
+                  )}
+                  {submission.loom_url && displayStatus === 'Rejected' && (
+                    <Button
+                      size="small"
+                      onClick={() => window.open(submission.loom_url, '_blank')}
+                      sx={{
+                        bgcolor: 'rgba(156, 39, 176, 0.8)',
+                        color: 'white',
+                        fontWeight: '600',
+                        fontSize: '0.8rem',
+                        borderRadius: '10px',
+                        px: 2,
+                        py: 0.8,
+                        textTransform: 'none',
+                        '&:hover': {
+                          bgcolor: 'rgba(156, 39, 176, 1)',
+                          transform: 'translateY(-1px)',
+                          boxShadow: '0 4px 12px rgba(156, 39, 176, 0.4)'
+                        },
+                        transition: 'all 0.2s ease'
+                      }}
+                    >
+                      View Feedback
+                    </Button>
+                  )}
+                </Box>
               </Box>
             </Box>
             );

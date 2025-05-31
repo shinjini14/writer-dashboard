@@ -46,19 +46,32 @@ export const AuthProvider = ({ children }) => {
     verifyToken();
   }, [token]);
 
-  const login = async (email, password) => {
+  const login = async (username, password) => {
     try {
+      console.log('🔐 Attempting login for:', username);
       const response = await axios.post(buildApiUrl(API_CONFIG.ENDPOINTS.AUTH.LOGIN), {
-        email,
+        username,
         password,
       });
 
-      const { token: newToken, user: userData } = response.data;
+      console.log('✅ Login response:', response.data);
+
+      const { token: newToken, username: userName, role } = response.data;
+
+      // Create user object from response
+      const userData = {
+        username: userName,
+        role: role,
+        name: userName // Use username as display name
+      };
 
       localStorage.setItem('token', newToken);
       setToken(newToken);
       setUser(userData);
+
+      console.log('✅ Login successful, user set:', userData);
     } catch (error) {
+      console.error('❌ Login error:', error.response?.data || error.message);
       throw new Error(error.response?.data?.message || 'Login failed');
     }
   };

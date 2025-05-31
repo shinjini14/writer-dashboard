@@ -46,7 +46,9 @@ export const API_CONFIG = {
       DELETE: '/api/submissions'
     },
     ANALYTICS: {
-      OVERVIEW: '/api/analytics/overview',
+      OVERVIEW: '/api/analytics',
+      CHANNEL: '/api/analytics/channel',
+      CONTENT: '/api/analytics/content',
       DETAILED: '/api/analytics/detailed',
       VIDEO: '/api/analytics/video'
     },

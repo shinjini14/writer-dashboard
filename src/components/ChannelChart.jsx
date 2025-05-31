@@ -33,7 +33,7 @@ import {
   AreaChart
 } from 'recharts';
 
-const ChannelChart = ({ data }) => {
+const ChannelChart = ({ data, totalViews, progressToTarget, avgDailyViews, dateRange }) => {
   const [chartType, setChartType] = useState('line');
   const [viewMode, setViewMode] = useState('chart');
 
@@ -65,7 +65,9 @@ const ChannelChart = ({ data }) => {
   }
 
   const formatNumber = (num) => {
-    if (num >= 1000000) {
+    if (num >= 1000000000) {
+      return (num / 1000000000).toFixed(1) + 'B';
+    } else if (num >= 1000000) {
       return (num / 1000000).toFixed(1) + 'M';
     } else if (num >= 1000) {
       return (num / 1000).toFixed(1) + 'K';
@@ -73,8 +75,47 @@ const ChannelChart = ({ data }) => {
     return num.toLocaleString();
   };
 
+  // Dynamic date formatting based on date range
+  const formatXAxisDate = (value) => {
+    const date = new Date(value);
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+    // Determine format based on date range
+    if (dateRange === '7d' || dateRange === '28d' || dateRange === '30d') {
+      // For short ranges, show month/day
+      return `${months[date.getMonth()]} ${date.getDate()}`;
+    } else if (dateRange === '90d' || dateRange === '365d') {
+      // For medium ranges, show month/year
+      return `${months[date.getMonth()]} ${date.getFullYear().toString().slice(-2)}`;
+    } else {
+      // For lifetime/long ranges, show year only or month/year for recent data
+      if (date.getFullYear() === new Date().getFullYear()) {
+        return `${months[date.getMonth()]} ${date.getDate()}`;
+      }
+      return date.getFullYear().toString();
+    }
+  };
+
+  // Calculate dynamic tick count based on data length
+  const getTickCount = () => {
+    if (!data || data.length === 0) return 5;
+
+    if (data.length <= 7) return data.length;
+    if (data.length <= 30) return 7;
+    if (data.length <= 90) return 10;
+    return 12;
+  };
+
   const CustomTooltip = ({ active, payload, label }) => {
     if (active && payload && payload.length) {
+      // Format the date for tooltip display
+      const formattedDate = new Date(label).toLocaleDateString('en-US', {
+        weekday: 'short',
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric'
+      });
+
       return (
         <Box sx={{
           bgcolor: '#1a1a1a',
@@ -84,7 +125,7 @@ const ChannelChart = ({ data }) => {
           boxShadow: '0 4px 12px rgba(0,0,0,0.3)'
         }}>
           <Typography variant="body2" sx={{ color: 'white', mb: 1 }}>
-            {label}
+            {formattedDate}
           </Typography>
           {payload.map((entry, index) => (
             <Typography
@@ -117,14 +158,12 @@ const ChannelChart = ({ data }) => {
             dataKey="date"
             stroke="#888"
             fontSize={12}
-            tickFormatter={(value) => {
-              const date = new Date(value);
-              const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-              const month = months[date.getMonth()];
-              const day = date.getDate();
-              const year = date.getFullYear();
-              return `${month} ${day}, ${year}`;
-            }}
+            tickFormatter={formatXAxisDate}
+            interval="preserveStartEnd"
+            tickCount={getTickCount()}
+            angle={-45}
+            textAnchor="end"
+            height={60}
           />
           <YAxis
             stroke="#888"
@@ -151,14 +190,12 @@ const ChannelChart = ({ data }) => {
             dataKey="date"
             stroke="#888"
             fontSize={12}
-            tickFormatter={(value) => {
-              const date = new Date(value);
-              const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-              const month = months[date.getMonth()];
-              const day = date.getDate();
-              const year = date.getFullYear();
-              return `${month} ${day}, ${year}`;
-            }}
+            tickFormatter={formatXAxisDate}
+            interval="preserveStartEnd"
+            tickCount={getTickCount()}
+            angle={-45}
+            textAnchor="end"
+            height={60}
           />
           <YAxis
             stroke="#888"
@@ -348,12 +385,12 @@ const ChannelChart = ({ data }) => {
             </Box>
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1, mb: 0.5 }}>
               <Typography variant="h5" sx={{ color: 'white', fontWeight: 'bold' }}>
-                81.1M
+                {formatNumber(totalViews || 0)}
               </Typography>
               <CheckCircleIcon sx={{ color: '#4CAF50', fontSize: '1.2rem' }} />
             </Box>
             <Typography variant="caption" sx={{ color: '#888', fontStyle: 'italic' }}>
-              About the same as usual
+              {avgDailyViews ? `${formatNumber(avgDailyViews)} daily average` : 'About the same as usual'}
             </Typography>
           </Box>
 
@@ -364,19 +401,19 @@ const ChannelChart = ({ data }) => {
                 Progress
               </Typography>
               <Typography variant="h5" sx={{ color: 'white', fontWeight: 'bold' }}>
-                67%
+                {Math.round(progressToTarget || 0)}%
               </Typography>
             </Box>
             <Box sx={{ position: 'relative', maxWidth: '200px', mx: 'auto' }}>
               <LinearProgress
                 variant="determinate"
-                value={67}
+                value={progressToTarget || 0}
                 sx={{
                   height: 10,
                   borderRadius: 5,
                   bgcolor: '#444',
                   '& .MuiLinearProgress-bar': {
-                    bgcolor: '#8BC34A',
+                    bgcolor: progressToTarget >= 100 ? '#4CAF50' : progressToTarget >= 50 ? '#8BC34A' : '#FFC107',
                     borderRadius: 5
                   }
                 }}

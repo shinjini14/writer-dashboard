@@ -5,6 +5,7 @@ import { AuthProvider } from './contexts/AuthContext.jsx';
 import { ProtectedRoute } from './components/ProtectedRoute.jsx';
 import Login from './pages/Login.jsx';
 import Dashboard from './pages/Dashboard.jsx';
+import WriterDashboard from './pages/WriterDashboard.jsx';
 import Analytics from './pages/Analytics.jsx';
 import Content from './pages/Content.jsx';
 import VideoAnalytics from './pages/VideoAnalytics.jsx';
@@ -102,7 +103,7 @@ function App() {
               path="/support"
               element={
                 <ProtectedRoute>
-                  <Dashboard />
+                  <WriterDashboard />
                 </ProtectedRoute>
               }
             />

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Box,
@@ -16,8 +16,9 @@ import {
   IconButton,
   Menu,
   MenuItem,
-  Chip,
-  LinearProgress
+  CircularProgress,
+  FormControl,
+  Select
 } from '@mui/material';
 import {
   FilterList as FilterIcon,
@@ -27,15 +28,247 @@ import {
   NavigateNext as NextIcon
 } from '@mui/icons-material';
 import Layout from '../components/Layout.jsx';
+import { useAuth } from '../contexts/AuthContext.jsx';
+import axios from 'axios';
 
 const Content = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [tabValue, setTabValue] = useState(0);
   const [selectedItems, setSelectedItems] = useState([]);
   const [filterAnchor, setFilterAnchor] = useState(null);
+  const [contentData, setContentData] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [sortBy, setSortBy] = useState('date');
+  const [sortOrder, setSortOrder] = useState('desc');
+  const [filterStatus, setFilterStatus] = useState('all');
+  const [dateRange, setDateRange] = useState('28');
+  const [videoTypeFilter, setVideoTypeFilter] = useState('short'); // 'short', 'video' - start with shorts
+  const [currentPage, setCurrentPage] = useState(1);
+  const [videosPerPage] = useState(20);
+  const [pagination, setPagination] = useState({
+    currentPage: 1,
+    totalPages: 1,
+    totalVideos: 0,
+    videosPerPage: 20,
+    hasNextPage: false,
+    hasPrevPage: false
+  });
 
-  // Shorts content data matching the first image
-  const shortsData = [
+  // Fetch writer-specific videos from InfluxDB and PostgreSQL
+  const fetchContentData = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      // Get writer ID from user context or localStorage
+      const writerId = user?.writerId || localStorage.getItem('writerId') || '106';
+
+      console.log('🎬 Fetching content for writer:', writerId, 'Range:', dateRange);
+
+      // Try InfluxDB first, then PostgreSQL fallback
+      let response;
+      try {
+        response = await axios.get(`/api/writer/videos`, {
+          params: {
+            writer_id: writerId,
+            range: dateRange,
+            page: currentPage,
+            limit: videosPerPage,
+            type: videoTypeFilter
+          }
+        });
+        console.log('✅ Got response from /api/writer/videos:', response.data);
+      } catch (influxError) {
+        console.log('⚠️ InfluxDB API failed, trying PostgreSQL fallback');
+        response = await axios.get(`/api/writer/analytics`, {
+          params: {
+            writer_id: writerId,
+            page: currentPage,
+            limit: videosPerPage,
+            type: videoTypeFilter
+          }
+        });
+        console.log('✅ Got response from PostgreSQL fallback:', response.data);
+      }
+
+      // Handle paginated response
+      if (response.data) {
+        let videos, paginationData;
+
+        if (response.data.videos && response.data.pagination) {
+          // Paginated response
+          videos = response.data.videos;
+          paginationData = response.data.pagination;
+          setPagination(paginationData);
+        } else if (Array.isArray(response.data)) {
+          // Legacy non-paginated response
+          videos = response.data;
+          setPagination({
+            currentPage: 1,
+            totalPages: 1,
+            totalVideos: videos.length,
+            videosPerPage: videos.length,
+            hasNextPage: false,
+            hasPrevPage: false
+          });
+        } else {
+          videos = [];
+        }
+
+        // Apply sorting
+        videos = sortVideos(videos, sortBy, sortOrder);
+
+        // Apply filtering (video type filtering is now done server-side)
+        if (filterStatus !== 'all') {
+          videos = videos.filter(video =>
+            video.status?.toLowerCase() === filterStatus.toLowerCase()
+          );
+        }
+
+        setContentData(videos);
+        console.log('📺 Writer videos loaded:', videos.length, 'videos for writer', writerId, 'Page:', currentPage);
+      } else {
+        console.log('⚠️ No video data received, using mock data');
+        setContentData(getMockData());
+        setPagination({
+          currentPage: 1,
+          totalPages: 1,
+          totalVideos: 2,
+          videosPerPage: 2,
+          hasNextPage: false,
+          hasPrevPage: false
+        });
+      }
+    } catch (err) {
+      console.error('❌ Error fetching writer videos:', err);
+      setError(err.message);
+      // Fallback to mock data
+      setContentData(getMockData());
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Sort videos function
+  const sortVideos = (videos, sortField, order) => {
+    return [...videos].sort((a, b) => {
+      let aVal, bVal;
+
+      switch (sortField) {
+        case 'date':
+          aVal = new Date(a.posted_date);
+          bVal = new Date(b.posted_date);
+          break;
+        case 'views':
+          aVal = a.views || 0;
+          bVal = b.views || 0;
+          break;
+        case 'title':
+          aVal = a.title?.toLowerCase() || '';
+          bVal = b.title?.toLowerCase() || '';
+          break;
+        case 'likes':
+          aVal = a.likes || 0;
+          bVal = b.likes || 0;
+          break;
+        default:
+          aVal = a.posted_date;
+          bVal = b.posted_date;
+      }
+
+      if (order === 'asc') {
+        return aVal > bVal ? 1 : -1;
+      } else {
+        return aVal < bVal ? 1 : -1;
+      }
+    });
+  };
+
+  // Mock data function
+  const getMockData = () => {
+    return [
+      {
+        id: 1,
+        url: "https://youtube.com/shorts/sample1",
+        title: "[Short] Quick Story - Epic Adventure",
+        writer_name: "Test Writer",
+        account_name: "StoryChannel",
+        preview: "https://img.youtube.com/vi/sample1/maxresdefault.jpg",
+        views: 125000,
+        likes: 4500,
+        comments: 320,
+        posted_date: new Date(Date.now() - 86400000 * 2).toISOString(),
+        duration: "0:45",
+        type: "short",
+        status: "Published"
+      },
+      {
+        id: 2,
+        url: "https://youtube.com/watch?v=sample2",
+        title: "[Original] My Creative Writing Journey - Behind the Scenes",
+        writer_name: "Test Writer",
+        account_name: "CreativeStories",
+        preview: "https://img.youtube.com/vi/sample2/maxresdefault.jpg",
+        views: 89000,
+        likes: 3200,
+        comments: 180,
+        posted_date: new Date(Date.now() - 86400000 * 5).toISOString(),
+        duration: "12:30",
+        type: "video",
+        status: "Published"
+      }
+    ];
+  };
+
+  useEffect(() => {
+    fetchContentData();
+  }, [sortBy, sortOrder, filterStatus, dateRange, currentPage, videoTypeFilter]);
+
+  // Handle sort change
+  const handleSort = (field) => {
+    if (sortBy === field) {
+      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortBy(field);
+      setSortOrder('desc');
+    }
+  };
+
+  // Handle filter change
+  const handleFilterChange = (status) => {
+    setFilterStatus(status);
+    setFilterAnchor(null);
+  };
+
+  // Format date for display
+  const formatDate = (dateString) => {
+    const date = new Date(dateString);
+    return date.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric'
+    });
+  };
+
+  // Format views count
+  const formatViews = (views) => {
+    if (views >= 1000000) {
+      return (views / 1000000).toFixed(1) + 'M';
+    } else if (views >= 1000) {
+      return (views / 1000).toFixed(1) + 'K';
+    }
+    return views?.toString() || '0';
+  };
+
+  // Calculate engagement rate
+  const calculateEngagement = (likes, views) => {
+    if (!views || views === 0) return '0';
+    return ((likes / views) * 100).toFixed(1);
+  };
+
+  // Dummy data as fallback
+  const dummyShortsData = [
     {
       id: 1,
       thumbnail: '🎯',
@@ -238,12 +471,12 @@ const Content = () => {
     }
   ];
 
-  // Get current content based on selected tab
-  const contentData = tabValue === 0 ? shortsData : videosData;
+  // Get current content based on selected tab (for now, show all content in both tabs)
+  const currentContent = contentData;
 
   const handleSelectAll = (event) => {
     if (event.target.checked) {
-      setSelectedItems(contentData.map(item => item.id));
+      setSelectedItems(currentContent.map(item => item.id));
     } else {
       setSelectedItems([]);
     }
@@ -289,6 +522,13 @@ const Content = () => {
             onChange={(_, newValue) => {
               setTabValue(newValue);
               setSelectedItems([]); // Reset selections when switching tabs
+              // Update video type filter based on tab
+              if (newValue === 0) {
+                setVideoTypeFilter('short'); // Shorts tab
+              } else if (newValue === 1) {
+                setVideoTypeFilter('video'); // Videos tab
+              }
+              setCurrentPage(1); // Reset to first page when changing tabs
             }}
             sx={{
               '& .MuiTab-root': {
@@ -337,17 +577,63 @@ const Content = () => {
               '&:hover': { borderColor: '#666' }
             }}
           >
-            Filter
+            Filter: {filterStatus === 'all' ? 'All content' : filterStatus}
           </Button>
+
+          {/* Date Range Selector */}
+          <FormControl size="small" sx={{ minWidth: 120 }}>
+            <Select
+              value={dateRange}
+              onChange={(e) => setDateRange(e.target.value)}
+              sx={{
+                color: '#888',
+                borderColor: '#444',
+                '& .MuiOutlinedInput-notchedOutline': { borderColor: '#444' },
+                '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: '#666' },
+                '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: '#ffb300' },
+                '& .MuiSvgIcon-root': { color: '#888' }
+              }}
+            >
+              <MenuItem value="7">Last 7 days</MenuItem>
+              <MenuItem value="14">Last 14 days</MenuItem>
+              <MenuItem value="28">Last 28 days</MenuItem>
+              <MenuItem value="90">Last 90 days</MenuItem>
+              <MenuItem value="365">Last year</MenuItem>
+              <MenuItem value="lifetime">Lifetime</MenuItem>
+            </Select>
+          </FormControl>
+
+          <Typography variant="body2" sx={{ color: '#888', ml: 'auto' }}>
+            {pagination.totalVideos} videos found • Page {pagination.currentPage} of {pagination.totalPages}
+          </Typography>
+
           <Menu
             anchorEl={filterAnchor}
             open={Boolean(filterAnchor)}
             onClose={() => setFilterAnchor(null)}
+            PaperProps={{
+              sx: {
+                bgcolor: '#2a2a2a',
+                border: '1px solid #444',
+                '& .MuiMenuItem-root': {
+                  color: 'white',
+                  '&:hover': { bgcolor: '#3a3a3a' }
+                }
+              }
+            }}
           >
-            <MenuItem>All content</MenuItem>
-            <MenuItem>Published</MenuItem>
-            <MenuItem>Unlisted</MenuItem>
-            <MenuItem>Private</MenuItem>
+            <MenuItem onClick={() => handleFilterChange('all')}>
+              All content
+            </MenuItem>
+            <MenuItem onClick={() => handleFilterChange('published')}>
+              Published
+            </MenuItem>
+            <MenuItem onClick={() => handleFilterChange('unlisted')}>
+              Unlisted
+            </MenuItem>
+            <MenuItem onClick={() => handleFilterChange('private')}>
+              Private
+            </MenuItem>
           </Menu>
         </Box>
 
@@ -365,22 +651,135 @@ const Content = () => {
                   />
                 </TableCell>
                 <TableCell sx={{ color: '#888', border: 'none', py: 1 }}>
-                  {tabValue === 0 ? 'Short' : 'Video'}
+                  <Button
+                    onClick={() => handleSort('title')}
+                    sx={{
+                      color: '#888',
+                      textTransform: 'none',
+                      p: 0,
+                      minWidth: 'auto',
+                      '&:hover': { color: 'white' }
+                    }}
+                  >
+                    {tabValue === 0 ? 'Short' : 'Video'}
+                    {sortBy === 'title' && (
+                      <ArrowDownIcon
+                        sx={{
+                          fontSize: 16,
+                          ml: 0.5,
+                          transform: sortOrder === 'asc' ? 'rotate(180deg)' : 'none'
+                        }}
+                      />
+                    )}
+                  </Button>
                 </TableCell>
                 <TableCell sx={{ color: '#888', border: 'none', py: 1 }}>Account</TableCell>
                 <TableCell sx={{ color: '#888', border: 'none', py: 1 }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Button
+                    onClick={() => handleSort('date')}
+                    sx={{
+                      color: '#888',
+                      textTransform: 'none',
+                      p: 0,
+                      minWidth: 'auto',
+                      '&:hover': { color: 'white' }
+                    }}
+                  >
                     Date
-                    <ArrowDownIcon sx={{ fontSize: 16 }} />
-                  </Box>
+                    {sortBy === 'date' && (
+                      <ArrowDownIcon
+                        sx={{
+                          fontSize: 16,
+                          ml: 0.5,
+                          transform: sortOrder === 'asc' ? 'rotate(180deg)' : 'none'
+                        }}
+                      />
+                    )}
+                  </Button>
                 </TableCell>
-                <TableCell sx={{ color: '#888', border: 'none', py: 1 }}>Views</TableCell>
-                <TableCell sx={{ color: '#888', border: 'none', py: 1 }}>Likes (vs. dislikes)</TableCell>
+                <TableCell sx={{ color: '#888', border: 'none', py: 1 }}>
+                  <Button
+                    onClick={() => handleSort('views')}
+                    sx={{
+                      color: '#888',
+                      textTransform: 'none',
+                      p: 0,
+                      minWidth: 'auto',
+                      '&:hover': { color: 'white' }
+                    }}
+                  >
+                    Views
+                    {sortBy === 'views' && (
+                      <ArrowDownIcon
+                        sx={{
+                          fontSize: 16,
+                          ml: 0.5,
+                          transform: sortOrder === 'asc' ? 'rotate(180deg)' : 'none'
+                        }}
+                      />
+                    )}
+                  </Button>
+                </TableCell>
+                <TableCell sx={{ color: '#888', border: 'none', py: 1 }}>
+                  <Button
+                    onClick={() => handleSort('likes')}
+                    sx={{
+                      color: '#888',
+                      textTransform: 'none',
+                      p: 0,
+                      minWidth: 'auto',
+                      '&:hover': { color: 'white' }
+                    }}
+                  >
+                    Engagement
+                    {sortBy === 'likes' && (
+                      <ArrowDownIcon
+                        sx={{
+                          fontSize: 16,
+                          ml: 0.5,
+                          transform: sortOrder === 'asc' ? 'rotate(180deg)' : 'none'
+                        }}
+                      />
+                    )}
+                  </Button>
+                </TableCell>
                 <TableCell sx={{ color: '#888', border: 'none', py: 1 }}></TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
-              {contentData.map((item) => (
+              {loading ? (
+                <TableRow>
+                  <TableCell colSpan={7} sx={{ border: 'none', py: 4, textAlign: 'center' }}>
+                    <CircularProgress sx={{ color: '#ffb300' }} />
+                    <Typography variant="body2" sx={{ color: '#888', mt: 2 }}>
+                      Loading your content...
+                    </Typography>
+                  </TableCell>
+                </TableRow>
+              ) : error ? (
+                <TableRow>
+                  <TableCell colSpan={7} sx={{ border: 'none', py: 4, textAlign: 'center' }}>
+                    <Typography variant="body2" sx={{ color: '#ff6b6b', mb: 1 }}>
+                      Error loading content: {error}
+                    </Typography>
+                    <Button
+                      onClick={fetchContentData}
+                      sx={{ color: '#ffb300', textTransform: 'none' }}
+                    >
+                      Retry
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ) : currentContent.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={7} sx={{ border: 'none', py: 4, textAlign: 'center' }}>
+                    <Typography variant="body2" sx={{ color: '#888' }}>
+                      No content found for this writer
+                    </Typography>
+                  </TableCell>
+                </TableRow>
+              ) : (
+                currentContent.map((item) => (
                 <TableRow
                   key={item.id}
                   onClick={(event) => handleVideoClick(item.id, event)}
@@ -402,18 +801,33 @@ const Content = () => {
                       {/* Thumbnail */}
                       <Box sx={{ position: 'relative' }}>
                         <Box
+                          component="img"
+                          src={item.preview || `https://img.youtube.com/vi/${item.url?.split('v=')[1]}/maxresdefault.jpg`}
                           sx={{
                             width: 60,
                             height: 40,
-                            bgcolor: item.color,
                             borderRadius: '4px',
-                            display: 'flex',
+                            objectFit: 'cover'
+                          }}
+                          onError={(e) => {
+                            e.target.style.display = 'none';
+                            e.target.nextSibling.style.display = 'flex';
+                          }}
+                        />
+                        <Box
+                          sx={{
+                            width: 60,
+                            height: 40,
+                            bgcolor: '#333',
+                            borderRadius: '4px',
+                            display: 'none',
                             alignItems: 'center',
                             justifyContent: 'center',
-                            fontSize: '20px'
+                            fontSize: '20px',
+                            color: '#888'
                           }}
                         >
-                          {item.thumbnail}
+                          🎬
                         </Box>
                         <Box
                           sx={{
@@ -427,7 +841,7 @@ const Content = () => {
                             fontSize: '10px'
                           }}
                         >
-                          {item.duration}
+                          {item.duration || '0:30'}
                         </Box>
                       </Box>
                       {/* Title and Description */}
@@ -436,38 +850,38 @@ const Content = () => {
                           {item.title}
                         </Typography>
                         <Typography variant="caption" sx={{ color: '#888' }}>
-                          {item.description}
+                          {item.writer_name || 'Writer'}
                         </Typography>
                       </Box>
                     </Box>
                   </TableCell>
                   <TableCell sx={{ border: 'none', py: 2 }}>
                     <Typography variant="body2" sx={{ color: 'white' }}>
-                      {item.account}
+                      {item.account_name || item.writer_name || 'Writer Account'}
                     </Typography>
                   </TableCell>
                   <TableCell sx={{ border: 'none', py: 2 }}>
                     <Box>
                       <Typography variant="body2" sx={{ color: 'white', mb: 0.5 }}>
-                        {item.date}
+                        {formatDate(item.posted_date)}
                       </Typography>
                       <Typography variant="caption" sx={{ color: '#888' }}>
-                        {item.status}
+                        {item.status || 'Published'}
                       </Typography>
                     </Box>
                   </TableCell>
                   <TableCell sx={{ border: 'none', py: 2 }}>
                     <Typography variant="body2" sx={{ color: 'white' }}>
-                      {item.views}
+                      {formatViews(item.views)}
                     </Typography>
                   </TableCell>
                   <TableCell sx={{ border: 'none', py: 2 }}>
                     <Box>
                       <Typography variant="body2" sx={{ color: 'white', mb: 0.5 }}>
-                        {item.likes}
+                        {calculateEngagement(item.likes, item.views)}%
                       </Typography>
                       <Typography variant="caption" sx={{ color: '#888' }}>
-                        {item.comments}
+                        {item.likes?.toLocaleString() || '0'} likes
                       </Typography>
                     </Box>
                   </TableCell>
@@ -477,7 +891,8 @@ const Content = () => {
                     </IconButton>
                   </TableCell>
                 </TableRow>
-              ))}
+                ))
+              )}
             </TableBody>
           </Table>
         </TableContainer>
@@ -505,13 +920,27 @@ const Content = () => {
           </Box>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
             <Typography variant="body2" sx={{ color: '#888' }}>
-              1-30 of about 457
+              {((pagination.currentPage - 1) * pagination.videosPerPage) + 1}-{Math.min(pagination.currentPage * pagination.videosPerPage, pagination.totalVideos)} of {pagination.totalVideos}
             </Typography>
             <Box sx={{ display: 'flex', alignItems: 'center' }}>
-              <IconButton sx={{ color: '#888' }}>
+              <IconButton
+                sx={{
+                  color: pagination.hasPrevPage ? '#888' : '#444',
+                  '&:hover': { color: pagination.hasPrevPage ? 'white' : '#444' }
+                }}
+                disabled={!pagination.hasPrevPage || loading}
+                onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+              >
                 <PrevIcon />
               </IconButton>
-              <IconButton sx={{ color: '#888' }}>
+              <IconButton
+                sx={{
+                  color: pagination.hasNextPage ? '#888' : '#444',
+                  '&:hover': { color: pagination.hasNextPage ? 'white' : '#444' }
+                }}
+                disabled={!pagination.hasNextPage || loading}
+                onClick={() => setCurrentPage(prev => Math.min(pagination.totalPages, prev + 1))}
+              >
                 <NextIcon />
               </IconButton>
             </Box>
