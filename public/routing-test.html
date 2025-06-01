@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Routing Test - Writer Dashboard</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #1a1a1a;
+            color: white;
+            margin: 0;
+            padding: 20px;
+            min-height: 100vh;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background: #2a2a2a;
+            padding: 2rem;
+            border-radius: 10px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+        .test-button {
+            background: #ffb300;
+            color: black;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+            font-weight: bold;
+            text-decoration: none;
+            display: inline-block;
+        }
+        .test-button:hover {
+            background: #ffa000;
+        }
+        .status {
+            background: #333;
+            padding: 1rem;
+            margin: 1rem 0;
+            border-radius: 5px;
+            border-left: 4px solid #ffb300;
+        }
+        .success { border-left-color: #4caf50; }
+        .error { border-left-color: #f44336; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧪 Routing Test</h1>
+        <p>This page tests if Vercel routing is working correctly.</p>
+        
+        <div class="status success">
+            <h3>✅ Static File Routing Works</h3>
+            <p>If you can see this page, static files are being served correctly.</p>
+        </div>
+        
+        <div class="status">
+            <h3>🔗 Test React Router Routes</h3>
+            <p>Click these links to test if they serve the React app (not 404):</p>
+            <a href="/login" class="test-button">Test /login</a>
+            <a href="/dashboard" class="test-button">Test /dashboard</a>
+            <a href="/analytics" class="test-button">Test /analytics</a>
+            <a href="/content" class="test-button">Test /content</a>
+            <a href="/settings" class="test-button">Test /settings</a>
+        </div>
+        
+        <div class="status">
+            <h3>📋 Expected Results</h3>
+            <ul>
+                <li><strong>/login</strong> - Should show login page (not 404)</li>
+                <li><strong>/dashboard</strong> - Should redirect to login if not authenticated</li>
+                <li><strong>/analytics</strong> - Should redirect to login if not authenticated</li>
+                <li><strong>/content</strong> - Should redirect to login if not authenticated</li>
+                <li><strong>/settings</strong> - Should redirect to login if not authenticated</li>
+            </ul>
+        </div>
+        
+        <div class="status">
+            <h3>🚨 If You See 404 Errors</h3>
+            <p>This means the Vercel routing configuration is not working. Try:</p>
+            <ol>
+                <li>Redeploy the project with the updated vercel.json</li>
+                <li>Check that the build completed successfully</li>
+                <li>Verify the dist folder contains index.html and _redirects</li>
+                <li>Contact support if the issue persists</li>
+            </ol>
+        </div>
+        
+        <div class="status">
+            <h3>🔙 Navigation</h3>
+            <a href="/" class="test-button">Go to Main App</a>
+            <a href="/deployment-status.html" class="test-button">Deployment Status</a>
+        </div>
+    </div>
+</body>
+</html>

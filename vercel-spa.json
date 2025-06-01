@@ -1,5 +1,6 @@
 {
   "version": 2,
+  "name": "writer-dashboard",
   "builds": [
     {
       "src": "package.json",
@@ -11,7 +12,12 @@
   ],
   "routes": [
     {
-      "handle": "filesystem"
+      "src": "/assets/(.*)",
+      "dest": "/assets/$1"
+    },
+    {
+      "src": "/(.*\\.(js|css|png|jpg|jpeg|gif|svg|ico|woff|woff2|ttf|eot|html))",
+      "dest": "/$1"
     },
     {
       "src": "/(.*)",
