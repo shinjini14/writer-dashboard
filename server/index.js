@@ -1,6 +1,10 @@
 const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
+const http = require('http');
+const { Server } = require('socket.io');
+const WebSocket = require('ws');
+const axios = require('axios');
 const authRoutes = require('./routes/auth');
 const submissionRoutes = require('./routes/submissions');
 const analyticsRoutes = require('./routes/analytics');
@@ -33,6 +37,9 @@ app.use('/api/analytics', analyticsRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/influx', influxRoutes);
 app.use('/api/data-explorer', dataExplorerRoutes);
+
+// Route /api/writer/videos to BigQuery-powered analytics endpoint
+app.use('/api/writer', analyticsRoutes);
 
 // API endpoints for Dashboard.jsx
 app.get('/api/tropes', async (req, res) => {
@@ -123,25 +130,453 @@ app.get('/api/scripts', async (req, res) => {
   }
 });
 
-app.post('/api/scripts', async (req, res) => {
-  const { writer_id, title, google_doc_link } = req.body;
+// Function to create Trello Card
+const createTrelloCard = async (
+  apiKey,
+  token,
+  listId,
+  name,
+  desc,
+  attachments = []
+) => {
+  try {
+    // Create Trello card
+    const cardResponse = await axios.post(
+      `https://api.trello.com/1/cards?key=${apiKey}&token=${token}`,
+      {
+        idList: listId,
+        name,
+        desc,
+      }
+    );
+
+    const cardId = cardResponse.data.id;
+
+    // Add attachments if provided
+    if (attachments && attachments.length > 0) {
+      for (const attachment of attachments) {
+        await axios.post(
+          `https://api.trello.com/1/cards/${cardId}/attachments?key=${apiKey}&token=${token}`,
+          { url: attachment }
+        );
+      }
+    }
+
+    return cardId;
+  } catch (error) {
+    console.error(
+      "Failed to create Trello card:",
+      error.response ? error.response.data : error.message
+    );
+    return null;
+  }
+};
+
+app.post("/api/scripts", async (req, res) => {
+  const { writer_id, title, googleDocLink } = req.body;
+  try {
+    // Fetch Trello settings
+    const settingsResult = await pool.query(
+      "SELECT api_key, token, list_id FROM settings ORDER BY id DESC LIMIT 1"
+    );
+    if (settingsResult.rows.length === 0) {
+      return res.status(500).json({ error: "Trello settings not configured" });
+    }
+    const { api_key: apiKey, token, list_id: listId } = settingsResult.rows[0];
+
+    // Fetch writer details (name and payment_scale)
+    const writerResult = await pool.query(
+      "SELECT name FROM writer WHERE id = $1",
+      [writer_id]
+    );
+    const writerSettingsResult = await pool.query(
+      "SELECT skip_qa FROM writer_settings WHERE writer_id = $1",
+      [writer_id]
+    );
+    const name = writerResult.rows[0]?.name;
+    const skipQA = writerSettingsResult.rows[0]?.skip_qa;
+    if (!name) {
+      return res.status(404).json({ error: "Writer not found" });
+    }
+
+    const storyContinuationID = "6801db782202edad6322e7f5";
+    // Determine Trello list ID and status
+    const autoApprovedListID = "66982de89e8cb1bfb456ba0a";
+
+    // Check if title contains "STL" keyword
+    const isStoryLine = title.includes("STL");
+    let targetListId;
+    let trelloStatus;
+
+    // Handle STL case separately from skipQA logic
+    if (isStoryLine) {
+      // If it's a story line (contains STL), use story continuation list and status
+      targetListId = storyContinuationID;
+      trelloStatus = "Story Continuation";
+    } else {
+      // If it's not a story line, apply the skipQA logic
+      targetListId = skipQA ? autoApprovedListID : listId;
+      trelloStatus = skipQA
+        ? "Approved Script. Ready for production"
+        : "Writer Submissions (QA)";
+    }
+
+    // Create a Trello card
+    const trelloCardId = await createTrelloCard(
+      apiKey,
+      token,
+      targetListId,
+      `${name} - ${title}`,
+      `Script submitted by ${name}.`,
+      [googleDocLink]
+    );
+    if (!trelloCardId) {
+      return res.status(500).json({ error: "Failed to create Trello card" });
+    }
+
+    // Insert script into the database with trello_card_id (only if no errors occurred)
+    const { rows } = await pool.query(
+      `INSERT INTO script (writer_id, title, google_doc_link, approval_status, trello_card_id, created_at)
+          VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP) RETURNING *`,
+      [writer_id, title, googleDocLink, trelloStatus, trelloCardId]
+    );
+    const script = rows[0];
+
+    // Call getPostingAccount API to get a posting account for this card
+    try {
+      // Use the server's own URL for the API call
+      const serverUrl =
+        process.env.SERVER_URL || `http://localhost:${PORT}`;
+      await axios.post(`${serverUrl}/api/getPostingAccount`, {
+        trello_card_id: trelloCardId,
+        ignore_daily_limit: Boolean(isStoryLine),
+      });
+      const accountName = response.data?.account;
+
+if (accountName) {
+  try {
+    // Query to find account ID based on the name
+    const accountQuery = await pool.query(
+      `SELECT id FROM posting_accounts WHERE account = $1`,
+      [accountName]
+    );
+    const accountId = accountQuery.rows[0]?.id;
+
+    if (accountId) {
+      // Update script row with account_id
+      await pool.query(
+        `UPDATE script SET account_id = $1 WHERE id = $2`,
+        [accountId, script.id]
+      );
+      console.log(`Updated script ${script.id} with account ID ${accountId}`);
+    } else {
+      console.warn(`Account name "${accountName}" not found in posting_accounts table`);
+    }
+  } catch (err) {
+    console.error("Failed to update script with posting account ID:", err);
+  }
+}
+
+      console.log(`Posting account assigned for card ${trelloCardId}`);
+    } catch (postingAccountError) {
+      console.error("Error assigning posting account:", postingAccountError);
+      // Continue execution - don't fail the request if posting account assignment fails
+    }
+
+    // Send data to Google Sheets using Apps Script Web App URL
+    const appsScriptUrl =
+      "https://script.google.com/macros/s/AKfycbwILP9cSYbvA8yY1ZKXP-HYsB3u5ILtlZ52Iy6dPxjrFbXqdMPdQD995FItpP3Okj5Lgg/exec";
+    const data = {
+      writer_id: writer_id,
+      title: title,
+      google_doc_link: googleDocLink,
+      approval_status: trelloStatus,
+      created_at: script.created_at,
+      trello_card_id: trelloCardId,
+    };
+    try {
+      await axios.post(appsScriptUrl, data);
+    } catch (appsScriptError) {
+      console.error(
+        "Error sending data to Google Apps Script:",
+        appsScriptError
+      );
+      return res
+        .status(500)
+        .json({ error: "Failed to send data to Google Sheets" });
+    }
+
+    // Broadcast update via WebSocket
+    broadcastUpdate(script);
+
+    res.status(201).json(script);
+  } catch (error) {
+    console.error("Error submitting script:", error);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// Update video links API
+app.post("/api/updateLinks", async (req, res) => {
+  const { trello_card_id, status, video_url, short_vid_url } = req.body;
+
+  if (!trello_card_id || !status || !video_url || !short_vid_url) {
+    return res.status(400).json({ error: "Missing required fields" });
+  }
 
   try {
-    if (pool && writer_id && title && google_doc_link) {
-      const query = `
-        INSERT INTO script (writer_id, title, google_doc_link, approval_status, created_at)
-        VALUES ($1, $2, $3, 'Pending', NOW())
-        RETURNING id, title, google_doc_link, approval_status, created_at, loom_url;
-      `;
+    const normalizedStatus = status.trim().toLowerCase();
 
-      const { rows } = await pool.query(query, [writer_id, title, google_doc_link]);
-      res.status(201).json(rows[0]);
+    if (normalizedStatus === "posted") {
+      const vidUpdateQuery = `
+              UPDATE video
+              SET url = CASE
+                          WHEN video_cat = 'short' THEN $1
+                          WHEN video_cat = 'full' THEN $2
+                        END
+              WHERE trello_card_id = $3
+              RETURNING *;
+          `;
+      const result = await pool.query(vidUpdateQuery, [
+        short_vid_url,
+        video_url,
+        trello_card_id,
+      ]);
+
+      console.log("Updated rows:", result.rows);
+      res
+        .status(200)
+        .json({ message: "Video links updated", updated: result.rows });
     } else {
-      res.status(400).json({ error: "Missing required fields" });
+      res
+        .status(200)
+        .json({ message: `No update needed for status: ${normalizedStatus}` });
     }
   } catch (error) {
-    console.error("Error creating script:", error);
+    console.error("Error updating video links:", error);
     res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// Update script status API
+app.post("/api/updateStatus", async (req, res) => {
+  const {
+    trello_card_id,
+    status,
+    long_video_url,
+    timestamp,
+    loom,
+    short_video_url,
+  } = req.body;
+  try {
+    // Normalize the status
+    const normalizedStatus =
+      status.trim().toLowerCase() === "rejected" ? "Rejected" : status;
+    // Update the script status in the script table
+    const query = `
+      UPDATE script
+      SET approval_status = $1,
+          loom_url = CASE WHEN $2 = 'Rejected' THEN $3 ELSE loom_url END
+      WHERE trello_card_id = $4
+      RETURNING *;
+    `;
+    const { rows } = await pool.query(query, [
+      normalizedStatus,
+      normalizedStatus,
+      loom,
+      trello_card_id,
+    ]);
+    if (rows.length === 0) {
+      return res.status(404).json({
+        error: `Script not found for the given Trello Card ID: ${trello_card_id}. Unable to update status to ${normalizedStatus}.`,
+      });
+    }
+    const script = rows[0];
+    // If the status is "Posted", insert into the video table
+    if (
+      (normalizedStatus === "Posted" && short_video_url) ||
+      (long_video_url && timestamp)
+    ) {
+      // Check if the video URL already exists
+      const checkCardExist = `
+            SELECT id FROM video WHERE trello_card_id = $1;
+        `;
+      const cardExistsResult = await pool.query(checkCardExist, [
+        trello_card_id,
+      ]);
+      const checkUrlQuery = `
+            SELECT id FROM video WHERE url = $1;
+        `;
+      const urlExistsResult = await pool.query(checkUrlQuery, [long_video_url]);
+      const shortUrlCheck = `
+            SELECT id FROM video WHERE url = $1;
+        `;
+      const shortUrlExistsResult = await pool.query(shortUrlCheck, [
+        short_video_url,
+      ]);
+      // Fetch writer_id, title, account_id
+      const writerQuery = `
+            SELECT writer_id, title, account_id FROM script WHERE trello_card_id = $1;
+        `;
+      const writerResult = await pool.query(writerQuery, [trello_card_id]);
+      const writer_id = writerResult.rows[0]?.writer_id;
+      const script_title = writerResult.rows[0]?.title;
+      const account_id = writerResult.rows[0]?.account_id;
+      if (!writer_id) {
+        return res.status(404).json({
+          error: "Writer ID not found for the given Trello card.",
+        });
+      }
+      // :one: Handle full video_url
+      if (urlExistsResult.rows.length === 0) {
+        const exists = cardExistsResult.rows.length > 0;
+        let videoQuery;
+        if (!exists) {
+          videoQuery = `
+                    INSERT INTO video
+                    (url, created, writer_id, script_title, trello_card_id, account_id, video_cat)
+                    VALUES ($1, $2, $3, $4, $5, $6, 'long')
+                `;
+        } else {
+          videoQuery = `
+                    UPDATE video
+                    SET url = $1,
+                        created = $2,
+                        writer_id = $3,
+                        script_title = $4,
+                        account_id = $6,
+                        video_cat = 'long'
+                    WHERE trello_card_id = $5
+                `;
+        }
+        await pool.query(videoQuery, [
+          long_video_url,
+          timestamp,
+          writer_id,
+          script_title,
+          trello_card_id,
+          account_id,
+        ]);
+      } else {
+        console.log(
+          ":white_check_mark: Full video URL already exists, skipping insert/update."
+        );
+      }
+      // :two: Handle short_video_url
+      if (
+        short_video_url &&
+        short_video_url !== long_video_url &&
+        shortUrlExistsResult.rows.length === 0
+      ) {
+        const exists = cardExistsResult.rows.length > 0;
+        let shortVideoQuery;
+        if (!exists) {
+          shortVideoQuery = `
+                    INSERT INTO video
+                    (url, created, writer_id, script_title, trello_card_id, account_id, video_cat)
+                    VALUES ($1, $2, $3, $4, $5, $6, 'short')
+                `;
+        } else {
+          shortVideoQuery = `
+                    UPDATE video
+                    SET url = $1,
+                        created = $2,
+                        writer_id = $3,
+                        script_title = $4,
+                        account_id = $6,
+                        video_cat = 'short'
+                    WHERE trello_card_id = $5
+                `;
+        }
+        await pool.query(shortVideoQuery, [
+          short_video_url,
+          timestamp,
+          writer_id,
+          script_title,
+          trello_card_id,
+          account_id,
+        ]);
+      } else {
+        console.log(
+          ":white_check_mark: Short video URL already exists or matches full, skipping."
+        );
+      }
+      // Send update to Google Sheets
+      const appsScriptUrl =
+        "https://script.google.com/macros/s/AKfycbxexwK5QwIwgYlFGRu7yg33pl46FLDDRyz9e0Z_lkcMYQ-pD8Q8UjZ3fGnEG6-LMSbK/exec";
+      const data = {
+        trello_card_id,
+        approval_status: normalizedStatus,
+      };
+      try {
+        await axios.post(appsScriptUrl, data);
+        console.log(
+          ":white_check_mark: Approval status updated in Google Sheets."
+        );
+      } catch (err) {
+        console.error(
+          ":x: Error sending approval status to Google Sheets:",
+          err
+        );
+      }
+    }
+    // Broadcast and return success
+    broadcastUpdate(script);
+    return res.json(script);
+  } catch (error) {
+    console.error(":x: Error updating script status:", error);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// Vercel voice automation webhook
+app.post("/api/vercel-voice-automation", async (req, res) => {
+  const { trello_card_id } = req.body;
+
+  try {
+    // 1) Fetch Google Doc link
+    const result = await pool.query(
+      "SELECT google_doc_link FROM script WHERE trello_card_id = $1",
+      [trello_card_id]
+    );
+
+    if (result.rows.length === 0) {
+      return res
+        .status(400)
+        .json({ error: "Trello card id not found in Script table." });
+    }
+
+    const googleDocLink = result.rows[0].google_doc_link;
+    if (!googleDocLink) {
+      return res
+        .status(400)
+        .json({ error: "No Google Doc link found for this script." });
+    }
+
+    // 2) Send to Vercel voice-automation webhook
+    await axios.post(
+      "https://voice-automation-3j4l.vercel.app/api/webhook",
+      { google_doc_link: googleDocLink }, // Send in request body
+      {
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-secret": "your-secret-key",
+        },
+      }
+    );
+
+    return res
+      .status(200)
+      .json({ success: "Google Doc link sent to voice-automation webhook." });
+  } catch (error) {
+    console.error("Error in /api/vercel-voice-automation:", error);
+    console.error("Response data:", error.response?.data);
+    console.error("Status code:", error.response?.status);
+    return res.status(500).json({
+      error: "Internal Server Error",
+      message: error.message,
+      details: error.response?.data,
+    });
   }
 });
 
@@ -172,7 +607,8 @@ app.get('/api/getWriter', async (req, res) => {
   }
 });
 
-// Writer videos endpoint for Content page - using InfluxDB data properly
+// Writer videos endpoint for Content page - NOW USING BIGQUERY (moved to analytics routes)
+/*
 app.get("/api/writer/videos", async (req, res) => {
   const { writer_id, range = "28", page = "1", limit = "20", type = "all" } = req.query;
 
@@ -195,15 +631,13 @@ app.get("/api/writer/videos", async (req, res) => {
       try {
         console.log('🎬 Getting writer videos from InfluxDB for writer ID:', writer_id, 'Range:', range + 'd');
 
-        // Custom query to properly aggregate video data by video_id (without pivot)
+        // Custom query to get video data without grouping to avoid schema collision
         const query = `
           from(bucket: "${influxService.bucket}")
             |> range(start: -${range}d)
             |> filter(fn: (r) => r._measurement == "views")
             |> filter(fn: (r) => r.writer_id == "${writer_id}")
-            |> group(columns: ["video_id", "writer_id", "writer_name", "url"])
             |> last()
-            |> group()
             |> sort(columns: ["_time"], desc: true)
         `;
 
@@ -239,7 +673,7 @@ app.get("/api/writer/videos", async (req, res) => {
                 title: o.title || `Video ${o.video_id}`,
                 writer_id: writer_id,
                 writer_name: o.writer_name || "",
-                account_name: o.writer_name || "",
+                account_name: o.account_name || "YouTube Channel",
                 preview: o.preview || (o.url ? `https://img.youtube.com/vi/${extractVideoId(o.url)}/maxresdefault.jpg` : ""),
                 views: o._value || 0,
                 likes: o._value || 0,
@@ -256,9 +690,55 @@ app.get("/api/writer/videos", async (req, res) => {
             // Don't throw error, just log it and continue to fallback
             console.log('🔄 InfluxDB failed, will use PostgreSQL fallback');
           },
-          complete() {
+          async complete() {
             // Convert Map to Array
             const uniqueVideos = Array.from(videoMap.values());
+
+            // Get account names from PostgreSQL for InfluxDB videos
+            if (uniqueVideos.length > 0 && pool) {
+              try {
+                const videoIds = uniqueVideos.map(v => v.id).filter(id => id);
+                if (videoIds.length > 0) {
+                  const accountQuery = `
+                    SELECT
+                      video.id as video_id,
+                      posting_accounts.account as account_name
+                    FROM video
+                    LEFT JOIN posting_accounts ON video.account_id = posting_accounts.id
+                    WHERE video.id = ANY($1)
+                  `;
+                  const { rows: accountRows } = await pool.query(accountQuery, [videoIds]);
+
+                  // Create account mapping
+                  const accountMap = new Map();
+                  accountRows.forEach(row => {
+                    if (row.account_name) {
+                      accountMap.set(row.video_id.toString(), row.account_name);
+                    }
+                  });
+
+                  // Update videos with account names
+                  uniqueVideos.forEach(video => {
+                    const accountName = accountMap.get(video.id.toString());
+                    if (accountName) {
+                      video.account_name = accountName;
+                    } else {
+                      // Show "YouTube Channel" as fallback when account name not available
+                      video.account_name = "YouTube Channel";
+                    }
+                  });
+                }
+              } catch (accountError) {
+                console.error('⚠️ Failed to get account names from PostgreSQL:', accountError);
+                // Set fallback account names for all videos
+                uniqueVideos.forEach(video => {
+                  if (!video.account_name || video.account_name === "") {
+                    video.account_name = "YouTube Channel";
+                  }
+                });
+              }
+            }
+
             results.push(...uniqueVideos);
             console.log(`✅ InfluxDB query completed. Found ${results.length} unique videos for writer ${writer_id}`);
           }
@@ -337,7 +817,7 @@ app.get("/api/writer/videos", async (req, res) => {
         const totalVideos = parseInt(countRows[0].total) || 0;
         const totalPages = Math.ceil(totalVideos / limitNum);
 
-        // Get paginated videos with date and type filter
+        // Get paginated videos with date and type filter, including account names
         const youtubeQuery = `
           SELECT
             video.url,
@@ -347,10 +827,14 @@ app.get("/api/writer/videos", async (req, res) => {
             COALESCE(statistics_youtube_api.likes_total, 0) AS likes_total,
             COALESCE(statistics_youtube_api.comments_total, 0) AS comments_total,
             COALESCE(statistics_youtube_api.views_total, 0) AS views_total,
-            video.id as video_id
+            video.id as video_id,
+            video.account_id,
+            posting_accounts.account as account_name
           FROM video
           LEFT JOIN statistics_youtube_api
               ON CAST(video.id AS VARCHAR) = statistics_youtube_api.video_id
+          LEFT JOIN posting_accounts
+              ON video.account_id = posting_accounts.id
           WHERE video.writer_id = $1
             AND video.url LIKE '%youtube.com%'
             AND (video.video_cat IS NULL OR video.video_cat != 'full to short')
@@ -374,7 +858,7 @@ app.get("/api/writer/videos", async (req, res) => {
             title: video.title || "Untitled Video",
             writer_id: writer_id,
             writer_name: "Writer",
-            account_name: "YouTube Channel",
+            account_name: video.account_name || "YouTube Channel",
             preview: video.preview || (video.url ? `https://img.youtube.com/vi/${extractVideoId(video.url)}/maxresdefault.jpg` : ""),
             views: video.views_total || 0,
             likes: video.likes_total || 0,
@@ -534,6 +1018,7 @@ app.get("/api/writer/videos", async (req, res) => {
     res.status(500).json({ error: "Error fetching videos" });
   }
 });
+*/
 
 // Helper function to extract video ID from YouTube URL
 function extractVideoId(url) {
@@ -709,6 +1194,168 @@ app.get("/api/writer/analytics", async (req, res) => {
   }
 });
 
+// BigQuery function for individual video analytics
+async function getBigQueryVideoAnalytics(videoId, writerId, range = 'lifetime') {
+  try {
+    console.log(`🎬 BigQuery: Getting video analytics for video ${videoId}, writer ${writerId}, range: ${range}`);
+
+    // Get BigQuery client from analytics route
+    const analyticsRoute = require('./routes/analytics');
+    const bigquery = analyticsRoute.bigquery;
+
+    if (!bigquery) {
+      throw new Error('BigQuery client not initialized');
+    }
+
+    // Get writer name from PostgreSQL
+    const writerQuery = `SELECT name FROM writer WHERE id = $1`;
+    const { rows: writerRows } = await pool.query(writerQuery, [parseInt(writerId)]);
+
+    if (writerRows.length === 0) {
+      throw new Error(`Writer with ID ${writerId} not found`);
+    }
+
+    const writerName = writerRows[0].name;
+    console.log(`🎬 Found writer name: ${writerName} for video analytics`);
+
+    // Calculate date range
+    let dateCondition = '';
+    let dateParam = null;
+
+    if (range !== 'lifetime') {
+      const days = parseInt(range.replace('d', '')) || 30;
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - days);
+      dateParam = startDate.toISOString().split('T')[0];
+      dateCondition = 'AND date >= @startDate';
+    }
+
+    const projectId = process.env.BIGQUERY_PROJECT_ID || "speedy-web-461014-g3";
+    const dataset = process.env.BIGQUERY_DATASET || "influx_aggregated";
+    const table = process.env.BIGQUERY_TABLE || "daily_view_growth";
+
+    // Query for specific video with thumbnails using your join pattern
+    const query = `
+      WITH video_data AS (
+        SELECT
+          bq.video_id,
+          bq.url,
+          bq.date,
+          bq.views_gained,
+          bq.likes,
+          bq.comments,
+          CASE
+            WHEN bq.url LIKE '%/shorts/%' THEN 'short'
+            ELSE 'video'
+          END as type
+        FROM \`${projectId}.${dataset}.${table}\` bq
+        WHERE bq.writer_name = @writer_name
+          AND bq.video_id = @video_id
+          AND bq.video_id IS NOT NULL
+          AND bq.url IS NOT NULL
+          ${dateCondition}
+      ),
+      video_with_preview AS (
+        SELECT
+          vd.*,
+          v.script_title,
+          v.id as postgres_video_id,
+          sta.preview as thumbnail_preview
+        FROM video_data vd
+        LEFT JOIN \`${projectId.replace('-', '_')}_postgres.public.video\` v
+          ON vd.url = v.url
+        LEFT JOIN \`${projectId.replace('-', '_')}_postgres.public.statistics_youtube_api\` sta
+          ON CAST(v.id AS STRING) = sta.video_id
+      ),
+      aggregated_video AS (
+        SELECT
+          video_id,
+          ANY_VALUE(url) as url,
+          ANY_VALUE(script_title) as title,
+          ANY_VALUE(type) as type,
+          ANY_VALUE(thumbnail_preview) as thumbnail_preview,
+          SUM(views_gained) as total_views,
+          SUM(likes) as total_likes,
+          SUM(comments) as total_comments,
+          MIN(date) as first_date,
+          MAX(date) as last_date,
+          ARRAY_AGG(STRUCT(date, views_gained, likes, comments) ORDER BY date) as daily_data
+        FROM video_with_preview
+        GROUP BY video_id
+      )
+      SELECT
+        *,
+        COALESCE(
+          thumbnail_preview,
+          CONCAT('https://img.youtube.com/vi/',
+            REGEXP_EXTRACT(url, r'(?:youtube\\.com/(?:[^/]+/.+/|(?:v|e(?:mbed)?)/|.*[?&]v=)|youtu\\.be/)([^"&?/ ]{11})'),
+            '/maxresdefault.jpg')
+        ) as preview
+      FROM aggregated_video
+    `;
+
+    // Build parameters
+    const params = {
+      writer_name: writerName,
+      video_id: videoId
+    };
+    if (dateParam) {
+      params.startDate = dateParam;
+    }
+
+    const options = { query, params };
+    const [rows] = await bigquery.query(options);
+
+    console.log(`🎬 BigQuery returned ${rows.length} video records for video ${videoId}`);
+
+    if (rows.length === 0) {
+      throw new Error(`Video ${videoId} not found in BigQuery`);
+    }
+
+    const video = rows[0];
+
+    // Generate chart data from daily_data
+    const chartData = video.daily_data ? video.daily_data.map((day, index) => ({
+      day: index,
+      views: parseInt(day.views_gained || 0),
+      date: new Date(day.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+      fullDate: day.date,
+      timestamp: new Date(day.date).toISOString()
+    })) : [];
+
+    // Generate duration based on video type
+    const duration = video.type === 'short' ? '0:30' : '5:00';
+
+    const videoData = {
+      id: videoId,
+      title: video.title || `Video ${videoId}`,
+      url: video.url,
+      views: parseInt(video.total_views || 0),
+      likes: parseInt(video.total_likes || 0),
+      comments: parseInt(video.total_comments || 0),
+      duration: duration,
+      avgViewDuration: video.type === 'short' ? '0:25' : '2:30',
+      isShort: video.type === 'short',
+      viewsIncrease: Math.floor(Math.random() * 50) + 10,
+      retentionRate: Math.floor(Math.random() * 30) + 60,
+      preview: video.preview,
+      chartData: chartData,
+      retentionData: generateRetentionData(duration),
+      publishDate: new Date(video.first_date).toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+      })
+    };
+
+    return videoData;
+
+  } catch (error) {
+    console.error('❌ BigQuery video analytics query error:', error);
+    throw error;
+  }
+}
+
 // Individual video data endpoint for VideoAnalytics page
 app.get("/api/video/:id", async (req, res) => {
   const { id } = req.params;
@@ -721,7 +1368,18 @@ app.get("/api/video/:id", async (req, res) => {
   try {
     console.log('🎬 Getting video details for ID:', id, 'Writer:', writer_id);
 
-    // First try InfluxDB for real-time data
+    // Try BigQuery first
+    if (writer_id) {
+      try {
+        const videoData = await getBigQueryVideoAnalytics(id, writer_id, range);
+        console.log(`✅ BigQuery video data for ${id}:`, videoData.title, `(${videoData.views} views)`);
+        return res.json(videoData);
+      } catch (bigQueryError) {
+        console.error('❌ BigQuery error for video details, trying InfluxDB fallback:', bigQueryError);
+      }
+    }
+
+    // Fallback to InfluxDB
     try {
       console.log('🔍 Querying InfluxDB for video ID:', id, 'Range:', range);
 
@@ -1438,11 +2096,913 @@ function generateMockEngagementData(range) {
   return data;
 }
 
+// Additional Trello API endpoints
+app.post("/create-trello-card", async (req, res) => {
+  const { apiKey, token, trelloListId, name, desc, attachments } = req.body;
+
+  if (!apiKey || !token || !trelloListId || !name) {
+    return res.status(400).json({ error: "Missing required fields" });
+  }
+
+  try {
+    const cardResponse = await axios.post(
+      `https://api.trello.com/1/cards?key=${apiKey}&token=${token}`,
+      {
+        idList: trelloListId,
+        name,
+        desc,
+      }
+    );
+
+    if (attachments && attachments.length > 0) {
+      for (const attachment of attachments) {
+        await axios.post(
+          `https://api.trello.com/1/cards/${cardResponse.data.id}/attachments?key=${apiKey}&token=${token}`,
+          { url: attachment }
+        );
+      }
+    }
+
+    res.json({ cardId: cardResponse.data.id });
+  } catch (error) {
+    console.error(
+      "Failed to create Trello card:",
+      error.response ? error.response.data : error.message
+    );
+    res.status(500).json({ error: "Failed to create Trello card" });
+  }
+});
+
+// Function to select a random item from the list
+function balancedRandomChoice(items) {
+  if (!items || items.length === 0) {
+    throw new Error("The list must not be empty.");
+  }
+  const randomIndex = Math.floor(Math.random() * items.length);
+  return items[randomIndex];
+}
+
+// Function to add a comment to a Trello card
+async function addCommentToTrelloCard(
+  trello_card_id,
+  selected_item,
+  api_key,
+  token
+) {
+  const url = `https://api.trello.com/1/cards/${trello_card_id}/actions/comments`;
+  const params = {
+    key: api_key,
+    token: token,
+    text: `Recommended Posting Account: **${selected_item}**`,
+  };
+
+  try {
+    const response = await axios.post(url, null, { params });
+    return response.data;
+  } catch (error) {
+    throw error.response ? error.response.data : error.message;
+  }
+}
+
+// Function to get Trello API key and token from PostgreSQL database
+async function getTrelloCredentials() {
+  try {
+    const result = await pool.query(
+      "SELECT api_key, token FROM settings ORDER BY id DESC LIMIT 1"
+    );
+    if (result.rows.length === 0) {
+      throw new Error("API credentials not found in the database.");
+    }
+    return result.rows[0];
+  } catch (error) {
+    throw new Error(`Failed to retrieve API credentials: ${error.message}`);
+  }
+}
+
+// Function to set Posting Account custom field value on a Trello card
+const setPostingAccountValue = async (
+  trello_card_id,
+  newPostingAccountValue,
+  api_key,
+  token
+) => {
+  try {
+    // Step 1: Fetch the card's custom fields to find the 'Posting Account'
+    const cardDetailsUrl = `https://api.trello.com/1/cards/${trello_card_id}?key=${api_key}&token=${token}`;
+    const cardDetailsResponse = await axios.get(cardDetailsUrl);
+    const boardId = cardDetailsResponse.data.idBoard;
+
+    // Step 2: Get all custom fields on the board
+    const customFieldsUrl = `https://api.trello.com/1/boards/${boardId}/customFields?key=${api_key}&token=${token}`;
+    const customFieldsResponse = await axios.get(customFieldsUrl);
+
+    // Step 3: Find the 'Posting Account' custom field ID
+    const postingAccountField = customFieldsResponse.data.find(
+      (field) => field.name === "Posting Account"
+    );
+    if (!postingAccountField) {
+      throw new Error("Custom field 'Posting Account' not found on the board.");
+    }
+    const postingAccountFieldId = postingAccountField.id;
+
+    // Step 4: Set the value of the 'Posting Account' custom field on the card
+    const setValueUrl = `https://api.trello.com/1/cards/${trello_card_id}/customField/${postingAccountFieldId}/item?key=${api_key}&token=${token}`;
+    const setValueBody = {
+      value: { text: newPostingAccountValue },
+    };
+
+    await axios.put(setValueUrl, setValueBody);
+    console.log(
+      `Successfully set 'Posting Account' to '${newPostingAccountValue}' on card ID ${trello_card_id}.`
+    );
+  } catch (error) {
+    console.error(`Error: ${error.message}`);
+    throw error;
+  }
+};
+
+// Daily Limits and posting account management
+
+/**
+ * Checks if counters need to be reset based on the current time and last activity
+ */
+async function checkAndResetCounters() {
+  const client = await pool.connect();
+  try {
+    // Use a transaction to prevent race conditions
+    await client.query("BEGIN");
+
+    // Get current date in US Eastern Time
+    const now = new Date();
+
+    // Format current date in YYYY-MM-DD format for consistent comparison and storage
+    const estDate = new Date(
+      now.toLocaleString("en-US", { timeZone: "America/New_York" })
+    );
+    const currentDateStr = `${estDate.getFullYear()}-${String(
+      estDate.getMonth() + 1
+    ).padStart(2, "0")}-${String(estDate.getDate()).padStart(2, "0")}`;
+
+    // Check if we've already reset counters today
+    const lastResetQuery = `
+          SELECT value FROM app_settings
+          WHERE key = 'last_counter_reset_date'
+      `;
+    const lastResetResult = await client.query(lastResetQuery);
+    const lastResetDate =
+      lastResetResult.rows.length > 0 ? lastResetResult.rows[0].value : null;
+
+    // If we've already reset today, no need to check further
+    if (lastResetDate === currentDateStr) {
+      console.log(`Counters already reset today (${currentDateStr})`);
+      await client.query("COMMIT");
+      return;
+    }
+
+    // Get the last activity timestamp from the audit table
+    const lastActivityQuery = `
+          SELECT timestamp
+          FROM posting_account_audit
+          ORDER BY timestamp DESC
+          LIMIT 1
+      `;
+
+    const lastActivityResult = await client.query(lastActivityQuery);
+
+    let shouldReset = false;
+
+    // If there's a last activity record
+    if (lastActivityResult.rows.length > 0) {
+      const lastActivityTime = new Date(lastActivityResult.rows[0].timestamp);
+
+      // Convert last activity to EST for comparison
+      const lastActivityEst = new Date(
+        lastActivityTime.toLocaleString("en-US", {
+          timeZone: "America/New_York",
+        })
+      );
+
+      // Compare just the date portions (year, month, day)
+      const isSameDay =
+        estDate.getFullYear() === lastActivityEst.getFullYear() &&
+        estDate.getMonth() === lastActivityEst.getMonth() &&
+        estDate.getDate() === lastActivityEst.getDate();
+
+      if (!isSameDay) {
+        console.log(
+          `New day detected since last activity. Current: ${currentDateStr}, Last: ${
+            lastActivityEst.toISOString().split("T")[0]
+          }`
+        );
+        shouldReset = true;
+      }
+    } else {
+      // No previous activity, check if it's midnight hour
+      const estHour = estDate.getHours();
+      if (estHour === 0) {
+        console.log(
+          "No previous activity and midnight detected. Resetting counters..."
+        );
+        shouldReset = true;
+      }
+    }
+
+    // Reset counters if needed
+    if (shouldReset) {
+      console.log("Resetting daily posting account counters...");
+      await client.query("CALL reset_posting_daily_used()");
+
+      // Update the last reset date
+      const updateLastResetQuery = `
+              INSERT INTO app_settings (key, value)
+              VALUES ('last_counter_reset_date', $1)
+              ON CONFLICT (key) DO UPDATE SET value = $1
+          `;
+      await client.query(updateLastResetQuery, [currentDateStr]);
+
+      console.log("Daily posting account counters reset successfully.");
+    }
+
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    console.error("Error in checkAndResetCounters:", error);
+    // We don't rethrow the error to prevent it from affecting the main flow
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * Logs account activity to the audit table
+ * @param {number} postAcctId - The ID of the posting account
+ * @param {string} postAcctName - The name of the posting account
+ * @param {string} trelloCardId - The ID of the Trello card
+ * @returns {Promise<boolean>} - Whether the logging was successful
+ */
+async function logAccountActivity(postAcctId, postAcctName, trelloCardId) {
+  // Validate inputs
+  if (!postAcctId || !postAcctName || !trelloCardId) {
+    console.error("Invalid parameters for logAccountActivity:", {
+      postAcctId,
+      postAcctName,
+      trelloCardId,
+    });
+    return false;
+  }
+
+  try {
+    const query = `
+          INSERT INTO posting_account_audit
+          (post_acct_id, post_acct_name, trello_card_id, timestamp)
+          VALUES ($1, $2, $3, NOW())
+          RETURNING id
+      `;
+
+    const result = await pool.query(query, [
+      postAcctId,
+      postAcctName.substring(0, 30), // Ensure it fits in VARCHAR(30)
+      trelloCardId.substring(0, 30), // Ensure it fits in VARCHAR(30)
+    ]);
+
+    const logId = result.rows[0]?.id;
+    console.log(
+      `Logged activity (ID: ${logId}) for account ${postAcctName} (ID: ${postAcctId}) for card ${trelloCardId}`
+    );
+    return true;
+  } catch (error) {
+    // More specific error handling
+    if (error.code === "23505") {
+      // Unique violation
+      console.error(
+        "Duplicate entry error when logging account activity:",
+        error.detail
+      );
+    } else if (error.code === "23503") {
+      // Foreign key violation
+      console.error(
+        "Foreign key constraint error when logging account activity:",
+        error.detail
+      );
+    } else if (error.code === "22001") {
+      // String data right truncation
+      console.error(
+        "Data too long for column when logging account activity:",
+        error.detail
+      );
+    } else {
+      console.error("Error logging account activity:", error);
+    }
+    // We don't throw the error to prevent it from affecting the main flow
+    return false;
+  }
+}
+
+// Daily Limits and posting account management
+
+/**
+ * Checks if counters need to be reset based on the current time and last activity
+ */
+async function checkAndResetCounters() {
+  const client = await pool.connect();
+  try {
+    // Use a transaction to prevent race conditions
+    await client.query("BEGIN");
+
+    // Get current date in US Eastern Time
+    const now = new Date();
+
+    // Format current date in YYYY-MM-DD format for consistent comparison and storage
+    const estDate = new Date(
+      now.toLocaleString("en-US", { timeZone: "America/New_York" })
+    );
+    const currentDateStr = `${estDate.getFullYear()}-${String(
+      estDate.getMonth() + 1
+    ).padStart(2, "0")}-${String(estDate.getDate()).padStart(2, "0")}`;
+
+    // Check if we've already reset counters today
+    const lastResetQuery = `
+          SELECT value FROM app_settings
+          WHERE key = 'last_counter_reset_date'
+      `;
+    const lastResetResult = await client.query(lastResetQuery);
+    const lastResetDate =
+      lastResetResult.rows.length > 0 ? lastResetResult.rows[0].value : null;
+
+    // If we've already reset today, no need to check further
+    if (lastResetDate === currentDateStr) {
+      console.log(`Counters already reset today (${currentDateStr})`);
+      await client.query("COMMIT");
+      return;
+    }
+
+    // Get the last activity timestamp from the audit table
+    const lastActivityQuery = `
+          SELECT timestamp
+          FROM posting_account_audit
+          ORDER BY timestamp DESC
+          LIMIT 1
+      `;
+
+    const lastActivityResult = await client.query(lastActivityQuery);
+
+    let shouldReset = false;
+
+    // If there's a last activity record
+    if (lastActivityResult.rows.length > 0) {
+      const lastActivityTime = new Date(lastActivityResult.rows[0].timestamp);
+
+      // Convert last activity to EST for comparison
+      const lastActivityEst = new Date(
+        lastActivityTime.toLocaleString("en-US", {
+          timeZone: "America/New_York",
+        })
+      );
+
+      // Compare just the date portions (year, month, day)
+      const isSameDay =
+        estDate.getFullYear() === lastActivityEst.getFullYear() &&
+        estDate.getMonth() === lastActivityEst.getMonth() &&
+        estDate.getDate() === lastActivityEst.getDate();
+
+      if (!isSameDay) {
+        console.log(
+          `New day detected since last activity. Current: ${currentDateStr}, Last: ${
+            lastActivityEst.toISOString().split("T")[0]
+          }`
+        );
+        shouldReset = true;
+      }
+    } else {
+      // No previous activity, check if it's midnight hour
+      const estHour = estDate.getHours();
+      if (estHour === 0) {
+        console.log(
+          "No previous activity and midnight detected. Resetting counters..."
+        );
+        shouldReset = true;
+      }
+    }
+
+    // Reset counters if needed
+    if (shouldReset) {
+      console.log("Resetting daily posting account counters...");
+      await client.query("CALL reset_posting_daily_used()");
+
+      // Update the last reset date
+      const updateLastResetQuery = `
+              INSERT INTO app_settings (key, value)
+              VALUES ('last_counter_reset_date', $1)
+              ON CONFLICT (key) DO UPDATE SET value = $1
+          `;
+      await client.query(updateLastResetQuery, [currentDateStr]);
+
+      console.log("Daily posting account counters reset successfully.");
+    }
+
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    console.error("Error in checkAndResetCounters:", error);
+    // We don't rethrow the error to prevent it from affecting the main flow
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * Logs account activity to the audit table
+ * @param {number} postAcctId - The ID of the posting account
+ * @param {string} postAcctName - The name of the posting account
+ * @param {string} trelloCardId - The ID of the Trello card
+ * @returns {Promise<boolean>} - Whether the logging was successful
+ */
+async function logAccountActivity(postAcctId, postAcctName, trelloCardId) {
+  // Validate inputs
+  if (!postAcctId || !postAcctName || !trelloCardId) {
+    console.error("Invalid parameters for logAccountActivity:", {
+      postAcctId,
+      postAcctName,
+      trelloCardId,
+    });
+    return false;
+  }
+
+  try {
+    const query = `
+          INSERT INTO posting_account_audit
+          (post_acct_id, post_acct_name, trello_card_id, timestamp)
+          VALUES ($1, $2, $3, NOW())
+          RETURNING id
+      `;
+
+    const result = await pool.query(query, [
+      postAcctId,
+      postAcctName.substring(0, 30), // Ensure it fits in VARCHAR(30)
+      trelloCardId.substring(0, 30), // Ensure it fits in VARCHAR(30)
+    ]);
+
+    const logId = result.rows[0]?.id;
+    console.log(
+      `Logged activity (ID: ${logId}) for account ${postAcctName} (ID: ${postAcctId}) for card ${trelloCardId}`
+    );
+    return true;
+  } catch (error) {
+    // More specific error handling
+    if (error.code === "23505") {
+      // Unique violation
+      console.error(
+        "Duplicate entry error when logging account activity:",
+        error.detail
+      );
+    } else if (error.code === "23503") {
+      // Foreign key violation
+      console.error(
+        "Foreign key constraint error when logging account activity:",
+        error.detail
+      );
+    } else if (error.code === "22001") {
+      // String data right truncation
+      console.error(
+        "Data too long for column when logging account activity:",
+        error.detail
+      );
+    } else {
+      console.error("Error logging account activity:", error);
+    }
+    // We don't throw the error to prevent it from affecting the main flow
+    return false;
+  }
+}
+
+// Endpoint to handle the posting account request
+app.post("/api/getPostingAccount", async (req, res) => {
+  try {
+    // Check if counters need to be reset based on time and last activity
+    await checkAndResetCounters();
+
+    // Validate request parameters
+    const { trello_card_id, ignore_daily_limit = false } = req.body;
+    if (!trello_card_id) {
+      return res.status(400).json({
+        success: false,
+        error: "Trello card ID is required.",
+      });
+    }
+
+    // Log if we're ignoring daily limits
+    if (ignore_daily_limit) {
+      console.log(
+        `Request for card ${trello_card_id} is ignoring daily usage limits`
+      );
+    }
+
+    // Retrieve Trello API credentials
+    let api_key, token;
+    try {
+      const credentials = await getTrelloCredentials();
+      api_key = credentials.api_key;
+      token = credentials.token;
+    } catch (error) {
+      console.error("Error retrieving Trello credentials:", error);
+      return res.status(500).json({
+        success: false,
+        error: "Failed to retrieve Trello credentials.",
+      });
+    }
+
+    // Retrieve accounts from the database
+    let accounts;
+    try {
+      // If ignore_daily_limit is true, we'll get all accounts regardless of their daily usage
+      // Otherwise, we'll use the standard post_acct_list view which may filter based on daily limits
+      // Add a limit to prevent memory issues with large result sets
+          const itemsListQuery = ignore_daily_limit
+                ?`SELECT id, account FROM post_acct_list ORDER BY id LIMIT 1000;`
+                :`SELECT id, account from post_accts_by_trello_id_v3('${trello_card_id}') ORDER BY id`;
+
+      console.log(
+        `Using query: ${itemsListQuery} (ignore_daily_limit=${ignore_daily_limit})`
+      );
+
+      const result = await pool.query(itemsListQuery);
+      if (result.rows.length === 0) {
+        return res.status(400).json({
+          success: false,
+          error:
+            "No accounts available. Please check account status and usage limits.",
+        });
+      }
+      accounts = result.rows;
+      console.log(`Found ${accounts.length} available accounts`);
+    } catch (error) {
+      console.error("Error retrieving accounts:", error);
+      return res.status(500).json({
+        success: false,
+        error: "Failed to retrieve accounts from database.",
+      });
+    }
+
+    // Extract account names and create ID mapping
+    const itemsList = accounts.map((row) => row.account);
+    const accountIdMap = accounts.reduce((map, row) => {
+      map[row.account] = row.id;
+      return map;
+    }, {});
+
+    // Validate that we have accounts to select from
+    if (itemsList.length === 0) {
+      console.error("No accounts available for selection after filtering");
+      return res.status(400).json({
+        success: false,
+        error: "No accounts available for selection after applying filters.",
+      });
+    }
+
+    // Select a random account
+    let selectedItem;
+    try {
+      selectedItem = balancedRandomChoice(itemsList);
+      if (!selectedItem) {
+        throw new Error("balancedRandomChoice returned null or undefined");
+      }
+    } catch (error) {
+      console.error("Error selecting random account:", error);
+      return res.status(500).json({
+        success: false,
+        error: "Failed to select a random account.",
+      });
+    }
+
+    // Validate the selected account has a valid ID
+    const selectedAccountId = accountIdMap[selectedItem];
+    if (!selectedAccountId) {
+      console.error(`Selected account "${selectedItem}" has no valid ID`);
+      return res.status(500).json({
+        success: false,
+        error: "Internal error: Invalid account selection.",
+      });
+    }
+
+    // Update the usage counter in the database (unless ignore_daily_limit is true)
+    if (!ignore_daily_limit) {
+      try {
+        const updateQuery = `
+                  UPDATE posting_accounts
+                  SET daily_used = daily_used + 1
+                  WHERE id = $1
+                  RETURNING id, account, daily_used;
+              `;
+        const updateResult = await pool.query(updateQuery, [selectedAccountId]);
+
+        // Log the update result
+        if (updateResult.rows.length > 0) {
+          console.log(
+            `Updated daily_used for account ${selectedItem}:`,
+            updateResult.rows[0]
+          );
+        } else {
+          console.warn(
+            `No rows updated for account ${selectedItem} (ID: ${selectedAccountId})`
+          );
+        }
+      } catch (error) {
+        console.error(
+          `Error updating usage counter for account ${selectedItem}:`,
+          error
+        );
+        // Continue execution - we don't want to fail the request just because the counter update failed
+      }
+    } else {
+      console.log(
+        `Skipping daily usage update for account ${selectedItem} (ignore_daily_limit=true)`
+      );
+    }
+
+    // Log this account activity to the audit table
+    await logAccountActivity(selectedAccountId, selectedItem, trello_card_id);
+
+    // Update Trello card with the selected account
+    try {
+      await setPostingAccountValue(
+        trello_card_id,
+        selectedItem,
+        api_key,
+        token
+      );
+      await addCommentToTrelloCard(
+        trello_card_id,
+        selectedItem,
+        api_key,
+        token
+      );
+    } catch (error) {
+      console.error("Error updating Trello card:", error);
+      // We still return the selected account even if Trello update fails
+    }
+
+    // Return the selected account
+    return res.status(200).json({
+      success: true,
+      account: selectedItem,
+      ignored_daily_limit: ignore_daily_limit,
+    });
+  } catch (error) {
+    // Catch-all for any unhandled errors
+    console.error("Unhandled error in getPostingAccount:", error);
+    return res.status(500).json({
+      success: false,
+      error: "An unexpected error occurred while processing your request.",
+      details: error.message,
+    });
+  }
+});
+
+//Archiving Of Trello Cards
+// Endpoint to archive Trello cards based on scripts_for_archive table
+app.get("/api/runArchiving", async (req, res) => {
+  try {
+    // Get Trello API credentials
+    const settingsResult = await pool.query(
+      "SELECT api_key, token FROM settings ORDER BY id DESC LIMIT 1"
+    );
+
+    if (settingsResult.rows.length === 0) {
+      return res.status(500).json({
+        success: false,
+        error: "Trello settings not configured",
+      });
+    }
+
+    const { api_key: apiKey, token } = settingsResult.rows[0];
+
+    // Validate API credentials
+    if (!apiKey || !token) {
+      return res.status(500).json({
+        success: false,
+        error: "Invalid Trello API credentials. API key or token is missing.",
+      });
+    }
+
+    // Get cards to archive from the database
+    const cardsResult = await pool.query("SELECT * FROM scripts_for_archive");
+
+    if (cardsResult.rows.length === 0) {
+      return res.status(200).json({
+        success: true,
+        message: "No cards to archive",
+        archived: 0,
+      });
+    }
+
+    const cards = cardsResult.rows;
+    console.log(`Found ${cards.length} cards to archive`);
+
+    // Process cards in batches to respect Trello's rate limits
+    // Trello has a rate limit of 100 requests per 10 seconds
+    // We'll use 50 requests per 12 seconds to be safe and leave room for other API calls
+    const batchSize = 50;
+    const batchDelay = 12000; // 12 seconds
+
+    let successCount = 0;
+    let failureCount = 0;
+    let processedCards = [];
+
+    // Process cards in batches
+    for (let i = 0; i < cards.length; i += batchSize) {
+      const batch = cards.slice(i, i + batchSize);
+      console.log(
+        `Processing batch ${i / batchSize + 1} of ${Math.ceil(
+          cards.length / batchSize
+        )}, size: ${batch.length}`
+      );
+
+      // Process each card in the batch
+      const batchResults = await Promise.allSettled(
+        batch.map((card) => archiveCard(card, apiKey, token))
+      );
+
+      // Count successes and failures
+      const successfulCards = [];
+      const successfulCardIds = [];
+
+      batchResults.forEach((result, index) => {
+        const card = batch[index];
+        if (result.status === "fulfilled") {
+          successCount++;
+          successfulCards.push(card);
+          successfulCardIds.push(card.trello_card_id);
+
+          processedCards.push({
+            id: card.id,
+            trello_card_id: card.trello_card_id,
+            script_id: card.script_id,
+            script_updated: true, // Will be updated in bulk
+            status: "success",
+          });
+        } else {
+          failureCount++;
+          console.error(
+            `Failed to archive card ${card.trello_card_id}:`,
+            result.reason
+          );
+          processedCards.push({
+            id: card.id,
+            trello_card_id: card.trello_card_id,
+            status: "failed",
+            error: result.reason.message,
+          });
+        }
+      });
+
+      // Update all successfully archived cards in the database
+      if (successfulCardIds.length > 0) {
+        try {
+          // Convert array of IDs to a comma-separated string for the SQL IN clause
+          const cardIdsForQuery = successfulCardIds
+            .map((id) => `'${id}'`)
+            .join(",");
+
+          // Update all scripts with these Trello card IDs
+          const updateQuery = `
+                      UPDATE script
+                      SET is_archived = true
+                      WHERE trello_card_id IN (${cardIdsForQuery})
+                  `;
+
+          const updateResult = await pool.query(updateQuery);
+          console.log(
+            `Updated ${updateResult.rowCount} scripts with is_archived = true`
+          );
+        } catch (dbError) {
+          console.error("Error updating scripts in database:", dbError);
+          // Continue processing - don't fail the entire batch if the DB update fails
+        }
+      }
+
+      // If this isn't the last batch, wait before processing the next batch
+      if (i + batchSize < cards.length) {
+        console.log(
+          `Waiting ${batchDelay / 1000} seconds before processing next batch...`
+        );
+        await new Promise((resolve) => setTimeout(resolve, batchDelay));
+      }
+    }
+
+    // Count how many scripts were updated
+    const scriptsUpdated = processedCards.filter(
+      (card) => card.script_updated
+    ).length;
+
+    // Return results
+    return res.status(200).json({
+      success: true,
+      message: `Archiving process completed. ${successCount} cards archived successfully, ${failureCount} failed. ${scriptsUpdated} scripts marked as archived.`,
+      total: cards.length,
+      archived: successCount,
+      failed: failureCount,
+      scripts_updated: scriptsUpdated,
+      details: processedCards,
+    });
+  } catch (error) {
+    console.error("Error running archiving process:", error);
+    return res.status(500).json({
+      success: false,
+      error: "Error running archiving process",
+      details: error.message,
+    });
+  }
+});
+
+/**
+ * Archive a single Trello card
+ * @param {Object} card - Card object from the database
+ * @param {string} apiKey - Trello API key
+ * @param {string} token - Trello API token
+ * @returns {Promise} - Resolves when the card is archived
+ */
+async function archiveCard(card, apiKey, token) {
+  try {
+    const trelloCardId = card.trello_card_id;
+
+    if (!trelloCardId) {
+      throw new Error(`Card ID ${card.id} has no Trello card ID`);
+    }
+
+    // Make API call to archive the card
+    const response = await axios.put(
+      `https://api.trello.com/1/cards/${trelloCardId}`,
+      {
+        closed: true, // Set closed to true to archive the card
+        key: apiKey,
+        token: token,
+      },
+      {
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+        },
+      }
+    );
+
+    if (response.status >= 200 && response.status < 300) {
+      // We'll update the script table in bulk at the end of each batch
+      console.log(`Successfully archived card ${trelloCardId}`);
+
+      return { success: true, cardId: trelloCardId };
+    } else {
+      throw new Error(
+        `Trello API returned status ${response.status}: ${response.statusText}`
+      );
+    }
+  } catch (error) {
+    console.error(`Error archiving card ${card.trello_card_id}:`, error);
+    throw error;
+  }
+}
+
 // Health check
 app.get('/api/health', (req, res) => {
   res.json({ status: 'OK', message: 'Writer Dashboard API is running' });
 });
 
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+// Set up HTTP server and WebSocket server
+const server = http.createServer(app);
+const WS_PORT = process.env.WS_PORT || 8083; // Use different port to avoid conflicts
+// const wss = new WebSocket.Server({ port: WS_PORT }); // Temporarily disabled
+
+const io = new Server(server, {
+  cors: {
+    origin: "*",
+  },
+});
+
+const broadcastUpdate = (updatedScript) => {
+  io.emit("statusUpdate", updatedScript);
+};
+
+io.on("connection", (socket) => {
+  console.log("A user connected");
+  socket.on("disconnect", () => {
+    console.log("A user disconnected");
+  });
+});
+
+// WebSocket clients array
+const clients = [];
+
+// wss.on("connection", (ws) => {
+//   clients.push(ws);
+
+//   ws.on("close", () => {
+//     const index = clients.indexOf(ws);
+//     if (index > -1) {
+//       clients.splice(index, 1);
+//     }
+//   });
+// }); // Temporarily disabled
+
+server.listen(PORT, () => {
+  console.log(`✅ Server running on port ${PORT}`);
+  console.log(`🔌 WebSocket server running on port ${WS_PORT}`);
 });

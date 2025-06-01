@@ -141,7 +141,7 @@ const PreviousSubmissions = ({
   // Status mapping function for your API data
   const getStatusDisplay = (status) => {
     if (!status || typeof status !== 'string') {
-      return "Unknown";
+      return "Pending"; // Default to Pending instead of Unknown
     }
     const normalizedStatus = status.trim().toLowerCase();
     switch (normalizedStatus) {
@@ -149,13 +149,14 @@ const PreviousSubmissions = ({
       case "writer submissions (qa)":
       case "finished video":
       case "pending":
+      case "story continuation":
         return "Pending";
       case "rejected":
         return "Rejected";
       case "posted":
         return "Posted";
       default:
-        return "Pending"; // Default to Pending for unknown statuses
+        return "Pending"; // Default to Pending for all unknown statuses
     }
   };
 
@@ -687,15 +688,8 @@ const PreviousSubmissions = ({
             const statusClass = `status-${displayStatus.toLowerCase().replace(' ', '-')}`;
             const chipClass = `chip-${displayStatus.toLowerCase().replace(' ', '-')}`;
 
-            // Parse title to extract type and number (assuming format like "[Trope 1] Title")
-            const titleParts = submission.title.match(/^\[([^\]]+)\]\s*(.*)$/);
-            const typeAndNumber = titleParts ? titleParts[1] : '';
-            const cleanTitle = titleParts ? titleParts[2] : submission.title;
-
-            // Extract type and number from the prefix
-            const typeMatch = typeAndNumber.match(/^(Trope|Original|Re-write|STL)(?:\s+(\d+))?/);
-            const type = typeMatch ? typeMatch[1] : 'Unknown';
-            const number = typeMatch && typeMatch[2] ? typeMatch[2] : '';
+            // Show exact title as stored in database - no parsing
+            const exactTitle = submission.title;
 
             return (
               <Box
@@ -756,7 +750,7 @@ const PreviousSubmissions = ({
                     overflow: 'hidden',
                   }}
                 >
-                  {cleanTitle || submission.title}
+                  {exactTitle}
                 </Typography>
                 <Chip
                   label={displayStatus}
@@ -796,44 +790,7 @@ const PreviousSubmissions = ({
                 Submitted on {new Date(submission.created_at).toLocaleDateString()}
               </Typography>
 
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Box sx={{ display: 'flex', gap: 1.5 }}>
-                  {type && (
-                    <Chip
-                      label={type}
-                      size="small"
-                      variant="outlined"
-                      sx={{
-                        borderColor: 'rgba(255, 255, 255, 0.2)',
-                        color: 'rgba(255, 255, 255, 0.8)',
-                        fontSize: '0.75rem',
-                        height: '28px',
-                        '&:hover': {
-                          borderColor: 'rgba(255, 255, 255, 0.4)',
-                          bgcolor: 'rgba(255, 255, 255, 0.05)'
-                        }
-                      }}
-                    />
-                  )}
-                  {number && (
-                    <Chip
-                      label={`#${number}`}
-                      size="small"
-                      variant="outlined"
-                      sx={{
-                        borderColor: 'rgba(255, 255, 255, 0.2)',
-                        color: 'rgba(255, 255, 255, 0.8)',
-                        fontSize: '0.75rem',
-                        height: '28px',
-                        '&:hover': {
-                          borderColor: 'rgba(255, 255, 255, 0.4)',
-                          bgcolor: 'rgba(255, 255, 255, 0.05)'
-                        }
-                      }}
-                    />
-                  )}
-                </Box>
-
+              <Box sx={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center' }}>
                 <Box sx={{ display: 'flex', gap: 1 }}>
                   {submission.google_doc_link && (
                     <Button

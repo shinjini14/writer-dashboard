@@ -12,6 +12,7 @@ import {
 import Layout from '../components/Layout.jsx';
 import PreviousSubmissions from '../components/PreviousSubmissions.jsx';
 import { useAuth } from '../contexts/AuthContext.jsx';
+import useSocket from '../hooks/useSocket.js';
 import axios from 'axios';
 
 const Dashboard = () => {
@@ -32,6 +33,91 @@ const Dashboard = () => {
   const [tropeList, setTropeList] = useState([]);
   const [structureList, setStructureList] = useState([]);
   const [writer, setWriter] = useState(null);
+
+  // Modern notification function
+  const showModernNotification = (title, status) => {
+    // Create notification element
+    const notification = document.createElement('div');
+    notification.style.cssText = `
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
+      color: white;
+      padding: 16px 24px;
+      border-radius: 12px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+      z-index: 10000;
+      max-width: 400px;
+      border-left: 4px solid #ffb300;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      animation: slideIn 0.3s ease-out;
+    `;
+
+    notification.innerHTML = `
+      <div style="display: flex; align-items: center; gap: 12px;">
+        <div style="
+          width: 32px;
+          height: 32px;
+          background: #ffb300;
+          border-radius: 50%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 16px;
+        ">✓</div>
+        <div>
+          <div style="font-weight: 600; margin-bottom: 4px;">Script Updated Successfully</div>
+          <div style="font-size: 14px; opacity: 0.9;">"${title}" → ${status}</div>
+        </div>
+      </div>
+    `;
+
+    // Add animation styles
+    const style = document.createElement('style');
+    style.textContent = `
+      @keyframes slideIn {
+        from {
+          transform: translateX(100%);
+          opacity: 0;
+        }
+        to {
+          transform: translateX(0);
+          opacity: 1;
+        }
+      }
+      @keyframes slideOut {
+        from {
+          transform: translateX(0);
+          opacity: 1;
+        }
+        to {
+          transform: translateX(100%);
+          opacity: 0;
+        }
+      }
+    `;
+    document.head.appendChild(style);
+
+    // Add to DOM
+    document.body.appendChild(notification);
+
+    // Auto remove after 4 seconds
+    setTimeout(() => {
+      notification.style.animation = 'slideOut 0.3s ease-in';
+      setTimeout(() => {
+        if (notification.parentNode) {
+          notification.parentNode.removeChild(notification);
+        }
+        if (style.parentNode) {
+          style.parentNode.removeChild(style);
+        }
+      }, 300);
+    }, 4000);
+  };
+
+  // WebSocket integration for real-time updates
+  const { onStatusUpdate, offStatusUpdate } = useSocket();
 
   // Fetch tropes from API - Updated for your API structure
   const fetchTropes = async () => {
@@ -172,6 +258,38 @@ const Dashboard = () => {
     fetchWriterData();
   }, [user]);
 
+  // WebSocket listener for real-time status updates
+  useEffect(() => {
+    const handleStatusUpdate = (updatedScript) => {
+      console.log('📡 Received real-time status update:', updatedScript);
+
+      // Update the submissions list with the new script
+      setSubmissions(prev => {
+        const existingIndex = prev.findIndex(sub => sub.id === updatedScript.id);
+        if (existingIndex >= 0) {
+          // Update existing submission
+          const updated = [...prev];
+          updated[existingIndex] = { ...updated[existingIndex], ...updatedScript };
+          return updated;
+        } else {
+          // Add new submission to the top of the list
+          return [updatedScript, ...prev];
+        }
+      });
+
+      // Show modern notification to user
+      showModernNotification(updatedScript.title, updatedScript.approval_status);
+    };
+
+    // Set up the listener
+    onStatusUpdate(handleStatusUpdate);
+
+    // Cleanup listener on unmount
+    return () => {
+      offStatusUpdate(handleStatusUpdate);
+    };
+  }, [onStatusUpdate, offStatusUpdate]);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
 
@@ -200,7 +318,7 @@ const Dashboard = () => {
       await axios.post('/api/scripts', {
         writer_id: writer.id,
         title: fullTitle,
-        google_doc_link: googleDocLink,
+        googleDocLink: googleDocLink,
       });
 
       // Refresh the scripts list to get the latest data

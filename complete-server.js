@@ -25,38 +25,29 @@ const pool = new Pool({
   ssl: false
 });
 
-// BigQuery setup with GCS credentials download
-const bucketName = "post_gres_dump"; // GCS bucket containing the service account key
-const fileName = "academic-oath-419411-6530d0473c9a.json"; // Service account key file
+// Load environment variables
+require('dotenv').config();
 
-// Function to download the service account key from GCS
-const downloadServiceAccountKey = async () => {
-  const storage = new Storage();
-  const destination = path.join(__dirname, fileName);
-
-  try {
-    await storage.bucket(bucketName).file(fileName).download({ destination });
-    console.log(`✅ Downloaded ${fileName} to ${destination}`);
-    return destination; // Return the path to the downloaded key file
-  } catch (error) {
-    console.error("❌ Error downloading service account key:", error);
-    throw error;
-  }
-};
-
-// Function to set up BigQuery client
+// BigQuery setup with environment credentials
 const setupBigQueryClient = async () => {
   try {
-    const keyFilePath = await downloadServiceAccountKey();
+    // Get credentials from environment variable
+    const credentialsJson = process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON;
 
-    // Create a new BigQuery client using the downloaded key
+    if (!credentialsJson) {
+      throw new Error('GOOGLE_APPLICATION_CREDENTIALS_JSON environment variable not set');
+    }
+
+    const credentials = JSON.parse(credentialsJson);
+    const projectId = process.env.BIGQUERY_PROJECT_ID || "speedy-web-461014-g3";
+
     const bigquery = new BigQuery({
-      keyFilename: keyFilePath,
-      projectId: "academic-oath-419411",
+      credentials: credentials,
+      projectId: projectId,
       location: "US",
     });
 
-    console.log('✅ BigQuery client initialized successfully');
+    console.log(`✅ BigQuery client initialized successfully for project: ${projectId}`);
     return bigquery;
   } catch (error) {
     console.error("❌ Failed to set up BigQuery client:", error);
@@ -357,10 +348,22 @@ app.get("/api/writer/views", authenticateToken, async (req, res) => {
     ]);
     const excludeUrls = excludeRows.map((row) => row.url);
 
-    // 2️⃣ Build the exclusion part for BigQuery
+    // 2️⃣ Get writer name from PostgreSQL and build the exclusion part for BigQuery
+    const writerQuery = `
+      SELECT name FROM writer WHERE id = $1
+    `;
+    const { rows: writerRows } = await pool.query(writerQuery, [parseInt(writer_id)]);
+
+    if (writerRows.length === 0) {
+      throw new Error(`Writer with ID ${writer_id} not found`);
+    }
+
+    const writerName = writerRows[0].name;
+    console.log(`📝 Found writer name: ${writerName} for ID: ${writer_id}`);
+
     let urlExclusionClause = "";
     let bigQueryParams = {
-      writer_id: parseInt(writer_id),
+      writer_name: writerName, // Use actual writer name from PostgreSQL
       startDate,
       endDate,
     };
@@ -376,16 +379,20 @@ app.get("/api/writer/views", authenticateToken, async (req, res) => {
       });
     }
 
-    // 3️⃣ Build the final BigQuery SQL
+    // 3️⃣ Build the final BigQuery SQL using new table schema
+    const projectId = process.env.BIGQUERY_PROJECT_ID || "speedy-web-461014-g3";
+    const dataset = process.env.BIGQUERY_DATASET || "influx_aggregated";
+    const table = process.env.BIGQUERY_TABLE || "daily_view_growth";
+
     const query = `
-      SELECT DATE(est_time) AS time, SUM(value) AS views
-      FROM \`academic-oath-419411.dev_views.all_writer_views\`
-      WHERE writer_id = @writer_id
-        AND DATE(est_time) BETWEEN @startDate AND @endDate
-        AND DATE(est_time) < DATE_SUB(CURRENT_DATE(), INTERVAL 1 DAY)
+      SELECT date AS time, SUM(views_gained) AS views
+      FROM \`${projectId}.${dataset}.${table}\`
+      WHERE writer_name = @writer_name
+        AND date BETWEEN @startDate AND @endDate
+        AND date < DATE_SUB(CURRENT_DATE(), INTERVAL 1 DAY)
         ${urlExclusionClause}
-      GROUP BY DATE(est_time)
-      ORDER BY time DESC;
+      GROUP BY date
+      ORDER BY date DESC;
     `;
 
     // 4️⃣ Run the query

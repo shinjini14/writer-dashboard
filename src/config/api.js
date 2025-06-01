@@ -13,7 +13,7 @@ const getBaseUrl = () => {
     // If hostname is localhost, we're in development
     if (hostname === 'localhost' || hostname === '127.0.0.1') {
       console.log('🏠 Detected localhost, using local API server');
-      return import.meta.env.VITE_API_BASE_URL || 'http://localhost:5001';
+      return import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
     }
 
     // For any other domain, use relative URLs

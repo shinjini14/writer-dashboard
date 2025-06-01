@@ -248,7 +248,7 @@ let submissions = [
   }
 ];
 
-// Get all submissions for authenticated user with real InfluxDB data
+// Get all submissions for authenticated user with PostgreSQL data
 router.get('/', authenticateToken, async (req, res) => {
   try {
     const { range = '30d' } = req.query;

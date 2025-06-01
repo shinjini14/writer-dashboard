@@ -462,7 +462,7 @@ class InfluxService {
     }
   }
 
-  // Get top performing videos - optimized
+  // Get top performing videos - optimized with account_name
   async getTopVideos(timeRange = '30d', limit = 10) {
     try {
       const query = `
@@ -489,7 +489,9 @@ class InfluxService {
               writer_name: o.writer_name,
               url: o.url,
               views: o._value || 0,
-              title: o.title || `Video ${o.video_id}` // Use title from data or fallback
+              title: o.title || `Video ${o.video_id}`, // Use title from data or fallback
+              account_name: o.account_name || o.writer_name || 'Unknown Account', // Use account_name or fallback to writer_name
+              writer_id: o.writer_id // Include writer_id if available
             });
           },
           error(error) {
@@ -557,6 +559,7 @@ class InfluxService {
               title: o.title || `Video ${o.video_id}`,
               writer_id: o.writer_id,
               writer_name: o.writer_name,
+              account_name: o.account_name || o.writer_name || 'Unknown Account', // Use account_name or fallback to writer_name
               views: o._value || 0,
               url: o.url,
               submittedOn: new Date().toISOString(), // Use current time since we don't have submission date

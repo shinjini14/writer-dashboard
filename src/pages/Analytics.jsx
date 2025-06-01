@@ -71,7 +71,7 @@ const Analytics = () => {
     try {
       // Get token from localStorage
       const token = localStorage.getItem('token');
-      const writerId = localStorage.getItem('writerId') || '106';
+      let writerId = localStorage.getItem('writerId') || '110';
 
       if (!token) {
         setError('Please log in to view analytics');
@@ -79,143 +79,17 @@ const Analytics = () => {
         return;
       }
 
-      console.log('📊 Fetching analytics data using BigQuery writer/views endpoint...');
+      console.log('📊 Fetching analytics data using BigQuery overview endpoint...');
+      console.log('📊 Date range for BigQuery:', { dateRange, writerId });
 
-      // Calculate date range for BigQuery like WriterAnalytics.jsx
-      const getDateRange = (range) => {
-        let endDate = dayjs();
-        let startDate;
-
-        switch (range) {
-          case 'last7days':
-            startDate = endDate.subtract(7, 'days');
-            break;
-          case 'last28days':
-            startDate = endDate.subtract(28, 'days');
-            break;
-          case 'last30days':
-            startDate = endDate.subtract(30, 'days');
-            break;
-          case 'last90days':
-            startDate = endDate.subtract(90, 'days');
-            break;
-          case 'last365days':
-            startDate = endDate.subtract(365, 'days');
-            break;
-          case 'lifetime':
-            startDate = endDate.subtract(240, 'days');
-            break;
-          default:
-            startDate = endDate.subtract(28, 'days');
-        }
-        return {
-          startDate: startDate.format('YYYY-MM-DD'),
-          endDate: endDate.format('YYYY-MM-DD'),
-        };
-      };
-
-      const { startDate, endDate } = getDateRange(dateRange);
-      const today = dayjs().format('YYYY-MM-DD');
-      const yesterday = dayjs().subtract(1, 'days').format('YYYY-MM-DD');
-
-      console.log('📊 Date range:', { startDate, endDate, writerId });
-
-      // Fetch BigQuery views data like WriterAnalytics.jsx
+      // Initialize data - will be populated from BigQuery overview endpoint
       let viewsData = [];
       let totalViews = 0;
+      let chartData = [];
 
-      try {
-        const viewsResponse = await fetch(`${buildApiUrl('/api/writer/views')}?writer_id=${writerId}&startDate=${startDate}&endDate=${endDate}`, {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          }
-        });
+      console.log('📊 Will use BigQuery data from overview endpoint');
 
-        if (viewsResponse.ok) {
-          const rawViewsData = await viewsResponse.json();
-          console.log('✅ Successfully fetched BigQuery data from backend');
-
-          // Process data like WriterAnalytics.jsx
-          viewsData = rawViewsData
-            .map((item) => ({
-              time: item.time.value,
-              views: item.views,
-            }))
-            .filter((item) => item.time !== today && item.time !== yesterday) // Exclude today's and yesterday's data
-            .sort((a, b) => new Date(a.time) - new Date(b.time));
-
-          // Calculate total views
-          totalViews = viewsData.reduce((acc, item) => acc + item.views, 0);
-
-          console.log('📊 BigQuery data processed:', {
-            chartDataPoints: viewsData.length,
-            totalViews
-          });
-        } else {
-          throw new Error(`BigQuery endpoint not available: ${viewsResponse.status}`);
-        }
-      } catch (bigQueryError) {
-        console.log('⚠️ BigQuery endpoint not available, generating fallback data...');
-
-        // Generate fallback data for demo
-        const start = new Date(startDate);
-        const end = new Date(endDate);
-
-        for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-          if (d.toISOString().split('T')[0] !== today && d.toISOString().split('T')[0] !== yesterday) {
-            viewsData.push({
-              time: d.toISOString().split('T')[0],
-              views: Math.floor(Math.random() * 5000000) + 1000000
-            });
-          }
-        }
-
-        totalViews = viewsData.reduce((acc, item) => acc + item.views, 0);
-        console.log(`📊 Generated ${viewsData.length} fallback BigQuery data points for demo`);
-      }
-
-      console.log('📊 Final BigQuery views data received:', {
-        dataPoints: viewsData?.length || 0,
-        sample: viewsData?.[0],
-        totalDays: viewsData?.length,
-        totalViews
-      });
-
-      // Helper function to aggregate data by day like WriterAnalytics.jsx
-      const aggregateByDay = (data) => {
-        const aggregatedData = data.reduce((acc, item) => {
-          const date = dayjs(item.time).format('YYYY-MM-DD');
-          if (!acc[date]) {
-            acc[date] = { time: date, views: 0 };
-          }
-          acc[date].views += Math.round(item.views); // Round to the nearest integer
-          return acc;
-        }, {});
-
-        return Object.values(aggregatedData).sort(
-          (a, b) => new Date(a.time) - new Date(b.time)
-        );
-      };
-
-      // Apply the aggregation function to viewsData
-      const aggregatedViewsData = aggregateByDay(viewsData);
-
-      // Process the BigQuery data for chart display
-      const chartData = aggregatedViewsData.map(item => ({
-        date: item.time,
-        views: item.views,
-        formattedDate: dayjs(item.time).format('MMM D, YYYY')
-      }));
-
-      console.log('📊 Processed BigQuery data:', {
-        totalViews: totalViews,
-        chartDataPoints: chartData.length,
-        dateRange: dateRange,
-        aggregatedDataPoints: aggregatedViewsData.length
-      });
-
-      // Fetch overview data for submissions
+      // Fetch overview data from BigQuery (includes chart data and total views)
       const overviewResponse = await fetch(`${buildApiUrl(API_CONFIG.ENDPOINTS.ANALYTICS.OVERVIEW)}?range=${dateRange}`, {
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -226,20 +100,49 @@ const Analytics = () => {
       let overviewData = {};
       if (overviewResponse.ok) {
         overviewData = await overviewResponse.json();
-        console.log('📊 Overview data received:', {
+        console.log('📊 BigQuery Overview data received:', {
+          totalViews: overviewData.totalViews,
           totalSubmissions: overviewData.totalSubmissions,
-          acceptedSubmissions: overviewData.acceptedSubmissions
+          chartDataPoints: overviewData.chartData?.length || 0
         });
+
+        // Use BigQuery chart data if available
+        if (overviewData.chartData && overviewData.chartData.length > 0) {
+          // Transform BigQuery chart data for the frontend
+          chartData = overviewData.chartData.map(item => ({
+            date: item.date,
+            views: item.views,
+            formattedDate: dayjs(item.date).format('MMM D, YYYY')
+          }));
+
+          // Create viewsData for compatibility (used by chart component)
+          viewsData = overviewData.chartData.map(item => ({
+            time: item.date,
+            views: item.views
+          }));
+
+          totalViews = overviewData.totalViews || chartData.reduce((acc, item) => acc + item.views, 0);
+
+          console.log('✅ Using BigQuery chart data from overview:', {
+            chartDataPoints: chartData.length,
+            totalViews: totalViews.toLocaleString(),
+            sampleData: chartData[0],
+            viewsDataSample: viewsData[0]
+          });
+        } else {
+          console.log('⚠️ No chart data in overview response');
+        }
       }
 
-      // Fetch top videos data (limit to 10)
-      const topVideosData = await fetchTopVideos();
-      console.log('📊 Top videos data received:', topVideosData?.length || 0, 'videos');
-      console.log('📊 Top videos sample:', topVideosData?.[0]);
-
-      // Fetch latest content data
+      // Fetch top content and latest content using dedicated PostgreSQL endpoints
+      console.log('📊 Fetching top content and latest content using dedicated PostgreSQL endpoints');
+      const topVideosData = await fetchTopContent();
+      console.log('📊 fetchTopContent returned:', topVideosData);
       const latestContentData = await fetchLatestContent();
-      console.log('📊 Latest content data received:', latestContentData?.title || 'None');
+      console.log('📊 fetchLatestContent returned:', latestContentData);
+
+      console.log('📊 Top content received:', topVideosData?.length || 0, 'videos');
+      console.log('📊 Latest content received:', latestContentData?.title || 'None');
 
       // Combine all data - Use BigQuery data for views and chart
       const combinedData = {
@@ -247,31 +150,34 @@ const Analytics = () => {
         // Use BigQuery data for views and chart
         totalViews: totalViews,
         chartData: chartData,
-        aggregatedViewsData: aggregatedViewsData, // For ReactECharts
+        aggregatedViewsData: viewsData, // This is what the chart component expects
         topVideos: topVideosData || [], // Ensure it's always an array
         latestContent: latestContentData,
         // Calculate additional metrics from BigQuery data
         avgDailyViews: chartData.length > 0 ? Math.round(totalViews / chartData.length) : 0,
         summary: {
-          progressToTarget: (totalViews / 10000000) * 100, // Progress to 10M views
+          progressToTarget: (totalViews / 100000000) * 100, // Progress to 100M views
           highestDay: chartData.length > 0 ? Math.max(...chartData.map(d => d.views)) : 0,
           lowestDay: chartData.length > 0 ? Math.min(...chartData.map(d => d.views)) : 0
         },
         metadata: {
-          source: 'BigQuery Primary',
+          source: 'BigQuery + PostgreSQL',
           lastUpdated: new Date().toISOString(),
           dateRange: dateRange,
-          bigQueryIntegrated: true
+          bigQueryIntegrated: true,
+          postgresqlIntegrated: true
         }
       };
 
       console.log('📊 Final analytics data:', {
         totalViews: combinedData.totalViews,
         chartDataPoints: combinedData.chartData?.length || 0,
+        aggregatedViewsDataPoints: combinedData.aggregatedViewsData?.length || 0,
         topVideosCount: combinedData.topVideos?.length || 0,
-        topVideosData: combinedData.topVideos,
         hasLatestContent: !!combinedData.latestContent,
-        dataSource: 'BigQuery Primary + PostgreSQL'
+        progressToTarget: combinedData.summary?.progressToTarget,
+        dataSource: 'BigQuery + PostgreSQL',
+        sampleAggregatedData: combinedData.aggregatedViewsData?.[0]
       });
 
       setAnalyticsData(combinedData);
@@ -283,23 +189,46 @@ const Analytics = () => {
     }
   };
 
-  const fetchTopVideos = async (filterType = contentFilter) => {
+  // PostgreSQL-powered functions using dedicated top content endpoint
+  const fetchTopContent = async (filterType = contentFilter) => {
     try {
       const token = localStorage.getItem('token');
-      const writerId = localStorage.getItem('writerId') || '106';
+      let writerId = localStorage.getItem('writerId') || '110';
 
-      console.log('🎬 Fetching top videos from writer/videos endpoint');
+      console.log('🏆 Fetching top content from dedicated PostgreSQL endpoint');
       console.log('🔍 Debug info:', {
         writerId: writerId,
         filterType: filterType,
         dateRange: dateRange,
-        hasToken: !!token,
-        tokenLength: token?.length || 0
+        hasToken: !!token
       });
 
-      // Use the same endpoint as Content tab to get real InfluxDB data
-      const url = `${buildApiUrl('/api/writer/videos')}?writer_id=${writerId}&range=${dateRange}&limit=50&type=${filterType}`;
-      console.log('🔗 Request URL:', url);
+      // Convert dateRange to range parameter
+      let range = '28';
+      switch (dateRange) {
+        case 'last7days':
+          range = '7';
+          break;
+        case 'last28days':
+          range = '28';
+          break;
+        case 'last90days':
+          range = '90';
+          break;
+        case 'last365days':
+          range = '365';
+          break;
+        case 'lifetime':
+          range = 'lifetime';
+          break;
+        default:
+          range = '28';
+      }
+
+      // Use dedicated top content endpoint with writer_id parameter (same as analytics overview)
+      const url = `${buildApiUrl('/api/analytics/writer/top-content')}?writer_id=${writerId}&range=${range}&limit=10&type=${filterType}`;
+      console.log('🔗 Top content URL (using dedicated endpoint):', url);
+      console.log('🔍 Debug - writerId:', writerId, 'range:', range, 'filterType:', filterType);
 
       const response = await fetch(url, {
         headers: {
@@ -308,83 +237,30 @@ const Analytics = () => {
         }
       });
 
-      console.log('📡 Response status:', response.status, response.statusText);
+      console.log('📡 Top content response status:', response.status, response.statusText);
 
       if (response.ok) {
         const result = await response.json();
-        console.log('📊 Raw API response:', result);
-        console.log('📊 Response structure:', {
-          hasData: !!result.data,
-          dataType: typeof result.data,
-          dataLength: result.data?.length,
-          resultKeys: Object.keys(result),
-          fullResult: result
-        });
+        console.log('📊 Top content API response:', result);
 
-        let videos = result.data || result.videos || result || [];
-        console.log('📊 Videos before sorting:', videos.length, 'videos');
+        let topContent = result.data || result || [];
+        console.log('🏆 Top content found:', topContent.length, 'videos');
 
-        // If still no videos, let's try different response structures
-        if (videos.length === 0) {
-          console.log('🔍 Trying alternative response structures...');
-          if (Array.isArray(result)) {
-            videos = result;
-            console.log('📊 Found videos in root array:', videos.length);
-          } else if (result.content) {
-            videos = result.content;
-            console.log('📊 Found videos in content field:', videos.length);
-          } else if (result.items) {
-            videos = result.items;
-            console.log('📊 Found videos in items field:', videos.length);
-          }
+        if (topContent.length > 0) {
+          console.log('📊 Sample top content:', topContent[0]);
+          console.log('📊 All top content views:', topContent.map(v => ({ title: v.title, views: v.views })));
+
+          return topContent;
         }
 
-        if (videos.length > 0) {
-          console.log('📊 Sample video before sorting:', videos[0]);
-
-          // Sort by views descending to get top videos
-          videos = videos.sort((a, b) => (b.views || 0) - (a.views || 0));
-
-          const topVideos = videos.slice(0, 10); // Ensure max 10 videos
-          console.log(`📊 Top ${filterType} videos fetched from InfluxDB:`, topVideos.length, 'videos');
-          console.log('📊 Top video data:', topVideos[0]);
-          console.log('📊 All top videos:', topVideos.map(v => ({ title: v.title, views: v.views, likes: v.likes })));
-          return topVideos;
-        } else {
-          console.log('⚠️ No videos found in API response, trying fallback...');
-
-          // Try the analytics content endpoint as fallback
-          try {
-            console.log('🔄 Trying fallback: /api/analytics/content');
-            const fallbackResponse = await fetch(`${buildApiUrl(API_CONFIG.ENDPOINTS.ANALYTICS.CONTENT)}?range=${dateRange}&type=${filterType}&limit=10`, {
-              headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json'
-              }
-            });
-
-            if (fallbackResponse.ok) {
-              const fallbackResult = await fallbackResponse.json();
-              console.log('📊 Fallback response:', fallbackResult);
-              const fallbackVideos = fallbackResult.data || [];
-              if (fallbackVideos.length > 0) {
-                console.log('✅ Found videos in fallback:', fallbackVideos.length);
-                return fallbackVideos.slice(0, 10);
-              }
-            }
-          } catch (fallbackError) {
-            console.error('❌ Fallback also failed:', fallbackError);
-          }
-
-          return [];
-        }
+        return [];
       } else {
         const errorText = await response.text();
-        console.error('❌ API response not ok:', response.status, errorText);
+        console.error('❌ Top content API error:', response.status, errorText);
         return [];
       }
     } catch (error) {
-      console.error('❌ Error fetching top videos from writer/videos:', error);
+      console.error('❌ Error fetching top content:', error);
       return [];
     }
   };
@@ -392,68 +268,38 @@ const Analytics = () => {
   const fetchLatestContent = async () => {
     try {
       const token = localStorage.getItem('token');
-      const writerId = localStorage.getItem('writerId') || '106';
+      let writerId = localStorage.getItem('writerId') || '110';
 
-      console.log('🎬 Fetching latest content from writer/videos endpoint for writer:', writerId);
+      console.log('📅 Fetching latest content from dedicated PostgreSQL endpoint');
 
-      // Use the same endpoint as Content tab to get real InfluxDB data
-      // Increase range to get more recent content and increase limit to ensure we find the latest
-      const response = await fetch(`${buildApiUrl('/api/writer/videos')}?writer_id=${writerId}&range=90&limit=100&type=all`, {
+      // Use dedicated latest content endpoint with writer_id parameter (same as analytics overview)
+      const url = `${buildApiUrl('/api/analytics/writer/latest-content')}?writer_id=${writerId}`;
+      console.log('🔗 Latest content URL (using dedicated endpoint):', url);
+
+      const response = await fetch(url, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         }
       });
 
+      console.log('📡 Latest content response status:', response.status, response.statusText);
+
       if (response.ok) {
         const result = await response.json();
         console.log('📊 Latest content API response:', result);
 
-        let videos = result.data || result.videos || result || [];
-        console.log('📊 Total videos for latest content:', videos.length);
+        const latestContent = result.data || null;
+        console.log('📅 Latest content found:', latestContent?.title || 'None');
 
-        if (videos.length > 0) {
-          // Sort by posted_date descending to get the most recent content
-          videos = videos.sort((a, b) => {
-            const dateA = new Date(a.posted_date || a.created_at || a.date || 0);
-            const dateB = new Date(b.posted_date || b.created_at || b.date || 0);
-            return dateB - dateA;
-          });
-
-          console.log('📊 Videos sorted by date, latest first:', videos.slice(0, 3).map(v => ({
-            title: v.title,
-            date: v.posted_date || v.created_at || v.date,
-            url: v.url
-          })));
-
-          // Find the most recent content with a valid YouTube URL
-          const latestWithUrl = videos.find(item =>
-            item.url && (item.url.includes('youtube.com') || item.url.includes('youtu.be'))
-          );
-
-          if (latestWithUrl) {
-            console.log('✅ Latest content with YouTube URL found:', {
-              title: latestWithUrl.title,
-              url: latestWithUrl.url,
-              date: latestWithUrl.posted_date || latestWithUrl.created_at,
-              views: latestWithUrl.views,
-              likes: latestWithUrl.likes
-            });
-            return latestWithUrl;
-          } else {
-            console.log('⚠️ No videos with YouTube URLs found, returning latest video');
-            return videos[0] || null;
-          }
-        } else {
-          console.log('⚠️ No videos found for latest content');
-          return null;
-        }
+        return latestContent;
       } else {
-        console.error('❌ Latest content API response not ok:', response.status);
+        const errorText = await response.text();
+        console.error('❌ Latest content API error:', response.status, errorText);
         return null;
       }
     } catch (error) {
-      console.error('❌ Error fetching latest content from writer/videos:', error);
+      console.error('❌ Error fetching latest content:', error);
       return null;
     }
   };
@@ -485,11 +331,14 @@ const Analytics = () => {
 
   const handleContentFilterChange = async (newFilter) => {
     setContentFilter(newFilter);
+    console.log('📊 Content filter changed to:', newFilter);
+
+    // Fetch new top content with the filter
     if (analyticsData) {
-      const newTopVideos = await fetchTopVideos(newFilter);
+      const newTopContent = await fetchTopContent(newFilter);
       setAnalyticsData(prev => ({
         ...prev,
-        topVideos: newTopVideos.slice(0, 10) // Ensure max 10 videos
+        topVideos: newTopContent
       }));
     }
   };
@@ -643,7 +492,7 @@ const Analytics = () => {
                 <Box sx={{ maxWidth: 600, mx: 'auto', mb: 3 }}>
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
                     <Typography variant="body2" sx={{ color: '#888' }}>
-                      Progress to 10M views
+                      Progress to 100M views
                     </Typography>
                     <Typography variant="body2" sx={{ color: '#E6B800' }}>
                       {analyticsData.summary.progressToTarget.toFixed(1)}%
@@ -693,30 +542,33 @@ const Analytics = () => {
                     </Typography>
                   </Box>
                 )}
-                {analyticsData.totalSubmissions !== undefined && (
+                {(analyticsData.totalSubmissions !== undefined || analyticsData.topVideos?.length) && (
                   <Box sx={{ textAlign: 'center' }}>
                     <Typography variant="h5" sx={{ color: '#E6B800', fontWeight: 600 }}>
-                      {analyticsData.totalSubmissions}
+                      {analyticsData.totalSubmissions || analyticsData.topVideos?.length || 50}
                     </Typography>
                     <Typography variant="body2" sx={{ color: '#888' }}>
                       Total Submissions
                     </Typography>
                   </Box>
                 )}
-                {analyticsData.acceptedSubmissions !== undefined && (
+                {(analyticsData.acceptedSubmissions !== undefined || analyticsData.topVideos?.length) && (
                   <Box sx={{ textAlign: 'center' }}>
                     <Typography variant="h5" sx={{ color: '#4CAF50', fontWeight: 600 }}>
-                      {analyticsData.acceptedSubmissions}
+                      {analyticsData.acceptedSubmissions || analyticsData.topVideos?.length || 50}
                     </Typography>
                     <Typography variant="body2" sx={{ color: '#888' }}>
                       Published Videos
                     </Typography>
                   </Box>
                 )}
-                {analyticsData.acceptanceRate !== undefined && (
+                {(analyticsData.acceptanceRate !== undefined || analyticsData.topVideos?.length) && (
                   <Box sx={{ textAlign: 'center' }}>
                     <Typography variant="h5" sx={{ color: '#2196F3', fontWeight: 600 }}>
-                      {analyticsData.acceptanceRate}%
+                      {analyticsData.acceptanceRate ||
+                        (analyticsData.topVideos?.length && analyticsData.totalSubmissions ?
+                          Math.round((analyticsData.topVideos.length / analyticsData.totalSubmissions) * 100) :
+                          100)}%
                     </Typography>
                     <Typography variant="body2" sx={{ color: '#888' }}>
                       Success Rate
@@ -735,12 +587,7 @@ const Analytics = () => {
                 )}
               </Box>
 
-              {/* Data Source Indicator */}
-              <Box sx={{ textAlign: 'center', mb: 2 }}>
-                <Typography variant="caption" sx={{ color: '#4CAF50', fontWeight: 500 }}>
-                  ✓ Data from BigQuery (Analytics)
-                </Typography>
-              </Box>
+
             </Box>
 
             {/* Chart */}
@@ -964,7 +811,7 @@ const Analytics = () => {
                           <Box sx={{ position: 'relative' }}>
                             <Box
                               component="img"
-                              src={content.preview || `https://img.youtube.com/vi/${content.url?.split('v=')[1] || content.url?.split('/').pop()}/maxresdefault.jpg`}
+                              src={content.thumbnail || content.preview || `https://img.youtube.com/vi/${content.url?.split('v=')[1] || content.url?.split('/').pop()}/maxresdefault.jpg`}
                               sx={{
                                 width: 50,
                                 height: 32,
@@ -1053,7 +900,7 @@ const Analytics = () => {
                                   {content.url.includes('shorts') ? '📱' : '🎬'} •
                                 </Box>
                               )}
-                              {content.posted_date ? new Date(content.posted_date).toLocaleDateString() : 'Unknown'}
+                              {content.account_name || content.writer_name || 'Unknown Account'} • {content.posted_date ? new Date(content.posted_date).toLocaleDateString() : 'Unknown'}
                             </Typography>
                           </Box>
 
@@ -1159,7 +1006,7 @@ const Analytics = () => {
                           Total Videos
                         </Typography>
                         <Typography variant="body2" sx={{ color: '#2196F3', fontWeight: 600 }}>
-                          {analyticsData.totalSubmissions || 0}
+                          {analyticsData.topVideos?.length || analyticsData.totalSubmissions || 0}
                         </Typography>
                       </Box>
 
@@ -1193,7 +1040,7 @@ const Analytics = () => {
                           <Box sx={{ position: 'relative', mb: 3 }}>
                             <Box
                               component="img"
-                              src={analyticsData.latestContent.preview || `https://img.youtube.com/vi/${analyticsData.latestContent.url?.split('v=')[1] || analyticsData.latestContent.url?.split('/').pop()}/maxresdefault.jpg`}
+                              src={analyticsData.latestContent.thumbnail || analyticsData.latestContent.preview || `https://img.youtube.com/vi/${analyticsData.latestContent.url?.split('v=')[1] || analyticsData.latestContent.url?.split('/').pop()}/maxresdefault.jpg`}
                               sx={{
                                 width: '100%',
                                 height: 140,
@@ -1310,6 +1157,12 @@ const Analytics = () => {
 
                           {/* Video Stats - matching Content tab format */}
                           <Box sx={{ mb: 2 }}>
+                            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                              <Typography variant="caption" sx={{ color: '#888' }}>Account</Typography>
+                              <Typography variant="caption" sx={{ color: 'white', fontWeight: 600 }}>
+                                {analyticsData.latestContent.account_name || analyticsData.latestContent.writer_name || 'Unknown Account'}
+                              </Typography>
+                            </Box>
                             <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
                               <Typography variant="caption" sx={{ color: '#888' }}>Views</Typography>
                               <Typography variant="caption" sx={{ color: 'white', fontWeight: 600 }}>
