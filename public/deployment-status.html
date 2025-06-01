@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Deployment Status Check</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #1a1a1a;
+            color: white;
+            margin: 0;
+            padding: 20px;
+            min-height: 100vh;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: #2a2a2a;
+            padding: 2rem;
+            border-radius: 10px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+        .status-item {
+            background: #333;
+            padding: 1rem;
+            margin: 1rem 0;
+            border-radius: 5px;
+            border-left: 4px solid #ffb300;
+        }
+        .success { border-left-color: #4caf50; }
+        .error { border-left-color: #f44336; }
+        .warning { border-left-color: #ff9800; }
+        .test-button {
+            background: #ffb300;
+            color: black;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+            font-weight: bold;
+        }
+        .test-button:hover {
+            background: #ffa000;
+        }
+        .result {
+            background: #1a1a1a;
+            padding: 10px;
+            border-radius: 5px;
+            margin-top: 10px;
+            font-family: monospace;
+            white-space: pre-wrap;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 Deployment Status Check</h1>
+        <p>This page helps diagnose deployment and routing issues.</p>
+        
+        <div class="status-item">
+            <h3>📍 Current Location</h3>
+            <p><strong>URL:</strong> <span id="current-url"></span></p>
+            <p><strong>Hostname:</strong> <span id="hostname"></span></p>
+            <p><strong>Protocol:</strong> <span id="protocol"></span></p>
+        </div>
+        
+        <div class="status-item">
+            <h3>🔐 Authentication Status</h3>
+            <p><strong>Token in localStorage:</strong> <span id="token-status"></span></p>
+            <p><strong>Token Value:</strong> <span id="token-value"></span></p>
+        </div>
+        
+        <div class="status-item">
+            <h3>🧪 Tests</h3>
+            <button class="test-button" onclick="testStaticFiles()">Test Static Files</button>
+            <button class="test-button" onclick="testAPI()">Test API</button>
+            <button class="test-button" onclick="testAuth()">Test Auth</button>
+            <button class="test-button" onclick="testRouting()">Test Routing</button>
+            <div id="test-results" class="result"></div>
+        </div>
+        
+        <div class="status-item">
+            <h3>🔗 Quick Navigation</h3>
+            <button class="test-button" onclick="window.location.href='/'">Home</button>
+            <button class="test-button" onclick="window.location.href='/login'">Login</button>
+            <button class="test-button" onclick="window.location.href='/dashboard'">Dashboard</button>
+            <button class="test-button" onclick="window.location.href='/analytics'">Analytics</button>
+        </div>
+        
+        <div class="status-item">
+            <h3>📋 Expected Behavior</h3>
+            <ul>
+                <li>✅ All routes should serve the React app (not 404)</li>
+                <li>✅ Unauthenticated users should be redirected to /login</li>
+                <li>✅ Authenticated users should access protected routes</li>
+                <li>✅ Refreshing any page should work correctly</li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        // Display current page info
+        document.getElementById('current-url').textContent = window.location.href;
+        document.getElementById('hostname').textContent = window.location.hostname;
+        document.getElementById('protocol').textContent = window.location.protocol;
+        
+        // Check authentication status
+        const token = localStorage.getItem('token');
+        document.getElementById('token-status').textContent = token ? '✅ Found' : '❌ Not found';
+        document.getElementById('token-value').textContent = token ? token.substring(0, 20) + '...' : 'None';
+        
+        function log(message) {
+            const results = document.getElementById('test-results');
+            results.textContent += new Date().toLocaleTimeString() + ': ' + message + '\n';
+        }
+        
+        function clearLog() {
+            document.getElementById('test-results').textContent = '';
+        }
+        
+        async function testStaticFiles() {
+            clearLog();
+            log('Testing static file serving...');
+            
+            try {
+                const response = await fetch('/vite.svg');
+                if (response.ok) {
+                    log('✅ Static files working');
+                } else {
+                    log('❌ Static files failed: ' + response.status);
+                }
+            } catch (error) {
+                log('❌ Static files error: ' + error.message);
+            }
+        }
+        
+        async function testAPI() {
+            clearLog();
+            log('Testing API connection...');
+            
+            try {
+                const response = await fetch('/api/auth/test');
+                if (response.ok) {
+                    const data = await response.json();
+                    log('✅ API working: ' + JSON.stringify(data));
+                } else {
+                    log('❌ API failed: ' + response.status + ' ' + response.statusText);
+                }
+            } catch (error) {
+                log('❌ API error: ' + error.message);
+            }
+        }
+        
+        async function testAuth() {
+            clearLog();
+            log('Testing authentication...');
+            
+            const token = localStorage.getItem('token');
+            if (!token) {
+                log('⚠️ No token found');
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/auth/profile', {
+                    headers: {
+                        'Authorization': 'Bearer ' + token
+                    }
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    log('✅ Auth working: ' + JSON.stringify(data.user));
+                } else {
+                    log('❌ Auth failed: ' + response.status + ' ' + response.statusText);
+                }
+            } catch (error) {
+                log('❌ Auth error: ' + error.message);
+            }
+        }
+        
+        async function testRouting() {
+            clearLog();
+            log('Testing routing...');
+            
+            const routes = ['/login', '/dashboard', '/analytics'];
+            
+            for (const route of routes) {
+                try {
+                    const response = await fetch(route);
+                    if (response.ok) {
+                        const text = await response.text();
+                        if (text.includes('<div id="root">')) {
+                            log('✅ Route ' + route + ' serves React app');
+                        } else {
+                            log('⚠️ Route ' + route + ' serves unexpected content');
+                        }
+                    } else {
+                        log('❌ Route ' + route + ' failed: ' + response.status);
+                    }
+                } catch (error) {
+                    log('❌ Route ' + route + ' error: ' + error.message);
+                }
+            }
+        }
+    </script>
+</body>
+</html>

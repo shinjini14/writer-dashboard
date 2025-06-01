@@ -14,7 +14,15 @@ export const useAuth = () => {
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
-  const [token, setToken] = useState(localStorage.getItem('token'));
+  const [token, setToken] = useState(() => {
+    // Safely get token from localStorage
+    try {
+      return localStorage.getItem('token');
+    } catch (error) {
+      console.warn('Failed to access localStorage:', error);
+      return null;
+    }
+  });
   const [loading, setLoading] = useState(true);
 
   // Configure axios defaults
@@ -38,7 +46,11 @@ export const AuthProvider = ({ children }) => {
         } catch (error) {
           console.log('❌ Token verification failed:', error.response?.status, error.response?.data?.message);
           // Token is invalid, remove it
-          localStorage.removeItem('token');
+          try {
+            localStorage.removeItem('token');
+          } catch (storageError) {
+            console.warn('Failed to remove invalid token from localStorage:', storageError);
+          }
           setToken(null);
           setUser(null);
         }
@@ -70,7 +82,11 @@ export const AuthProvider = ({ children }) => {
         name: userName // Use username as display name
       };
 
-      localStorage.setItem('token', newToken);
+      try {
+        localStorage.setItem('token', newToken);
+      } catch (error) {
+        console.warn('Failed to save token to localStorage:', error);
+      }
       setToken(newToken);
       setUser(userData);
 
@@ -82,7 +98,11 @@ export const AuthProvider = ({ children }) => {
   };
 
   const logout = () => {
-    localStorage.removeItem('token');
+    try {
+      localStorage.removeItem('token');
+    } catch (error) {
+      console.warn('Failed to remove token from localStorage:', error);
+    }
     setToken(null);
     setUser(null);
     delete axios.defaults.headers.common['Authorization'];
