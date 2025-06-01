@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Deployment Test - Writer Dashboard</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            margin: 0;
+            padding: 20px;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .container {
+            background: white;
+            padding: 2rem;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            max-width: 600px;
+            text-align: center;
+        }
+        .status {
+            background: #e8f5e8;
+            border: 2px solid #4caf50;
+            padding: 1rem;
+            border-radius: 8px;
+            margin: 1rem 0;
+        }
+        .test-item {
+            background: #f5f5f5;
+            padding: 0.5rem;
+            margin: 0.5rem 0;
+            border-radius: 5px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .success { color: #4caf50; }
+        .error { color: #f44336; }
+        .warning { color: #ff9800; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 Deployment Test</h1>
+        
+        <div class="status">
+            <h3>✅ Static Files Working!</h3>
+            <p>If you can see this page, static file serving is working correctly.</p>
+        </div>
+        
+        <div class="test-item">
+            <span>Current URL:</span>
+            <span id="current-url" class="success"></span>
+        </div>
+        
+        <div class="test-item">
+            <span>Hostname:</span>
+            <span id="hostname" class="success"></span>
+        </div>
+        
+        <div class="test-item">
+            <span>Protocol:</span>
+            <span id="protocol" class="success"></span>
+        </div>
+        
+        <div class="test-item">
+            <span>User Agent:</span>
+            <span id="user-agent" class="success"></span>
+        </div>
+        
+        <h3>🔗 Test Links</h3>
+        <p>
+            <a href="/" style="margin: 0 10px;">Home</a>
+            <a href="/dashboard" style="margin: 0 10px;">Dashboard</a>
+            <a href="/analytics" style="margin: 0 10px;">Analytics</a>
+            <a href="/login" style="margin: 0 10px;">Login</a>
+        </p>
+        
+        <h3>🛠 API Test</h3>
+        <button onclick="testAPI()" style="padding: 10px 20px; background: #4caf50; color: white; border: none; border-radius: 5px; cursor: pointer; margin: 5px;">Test API Connection</button>
+        <button onclick="testAuth()" style="padding: 10px 20px; background: #2196f3; color: white; border: none; border-radius: 5px; cursor: pointer; margin: 5px;">Test Authentication</button>
+        <div id="api-result" style="margin-top: 10px;"></div>
+
+        <h3>🔐 Authentication Status</h3>
+        <div id="auth-status" style="margin-top: 10px;"></div>
+        
+        <p style="margin-top: 2rem; color: #666; font-size: 0.9rem;">
+            <em>Writer Dashboard - Vercel Deployment Test</em>
+        </p>
+    </div>
+
+    <script>
+        // Display current page info
+        document.getElementById('current-url').textContent = window.location.href;
+        document.getElementById('hostname').textContent = window.location.hostname;
+        document.getElementById('protocol').textContent = window.location.protocol;
+        document.getElementById('user-agent').textContent = navigator.userAgent.substring(0, 50) + '...';
+        
+        // Check authentication status on page load
+        window.onload = function() {
+            checkAuthStatus();
+        };
+
+        function checkAuthStatus() {
+            const token = localStorage.getItem('token');
+            const authDiv = document.getElementById('auth-status');
+
+            if (token) {
+                authDiv.innerHTML = '<span class="success">✅ Token found in localStorage</span>';
+            } else {
+                authDiv.innerHTML = '<span class="warning">⚠️ No token found - user should be redirected to login</span>';
+            }
+        }
+
+        // API test function
+        async function testAPI() {
+            const resultDiv = document.getElementById('api-result');
+            resultDiv.innerHTML = '<span class="warning">Testing API...</span>';
+
+            try {
+                const response = await fetch('/api/auth/test', {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    resultDiv.innerHTML = '<span class="success">✅ API Working: ' + JSON.stringify(data) + '</span>';
+                } else {
+                    resultDiv.innerHTML = '<span class="error">❌ API Error: ' + response.status + ' ' + response.statusText + '</span>';
+                }
+            } catch (error) {
+                resultDiv.innerHTML = '<span class="error">❌ API Connection Failed: ' + error.message + '</span>';
+            }
+        }
+
+        // Authentication test function
+        async function testAuth() {
+            const resultDiv = document.getElementById('api-result');
+            const token = localStorage.getItem('token');
+
+            if (!token) {
+                resultDiv.innerHTML = '<span class="warning">⚠️ No token found. Try visiting the main app first to login.</span>';
+                return;
+            }
+
+            resultDiv.innerHTML = '<span class="warning">Testing authentication...</span>';
+
+            try {
+                const response = await fetch('/api/auth/profile', {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer ' + token
+                    }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    resultDiv.innerHTML = '<span class="success">✅ Authentication Working: ' + JSON.stringify(data.user) + '</span>';
+                } else {
+                    resultDiv.innerHTML = '<span class="error">❌ Auth Error: ' + response.status + ' ' + response.statusText + '</span>';
+                }
+            } catch (error) {
+                resultDiv.innerHTML = '<span class="error">❌ Auth Test Failed: ' + error.message + '</span>';
+            }
+        }
+    </script>
+</body>
+</html>

@@ -5,6 +5,16 @@ const pool = require('../config/database');
 
 const router = express.Router();
 
+// Test endpoint for deployment debugging
+router.get('/test', (req, res) => {
+  res.json({
+    status: 'success',
+    message: 'API is working correctly',
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || 'development'
+  });
+});
+
 // Login endpoint with PostgreSQL
 router.post('/login', async (req, res) => {
   try {

@@ -115,6 +115,15 @@ function App() {
                 </ProtectedRoute>
               }
             />
+            {/* Catch-all route for any unmatched paths */}
+            <Route
+              path="*"
+              element={
+                <ProtectedRoute>
+                  <Navigate to="/dashboard" replace />
+                </ProtectedRoute>
+              }
+            />
           </Routes>
         </Router>
       </AuthProvider>

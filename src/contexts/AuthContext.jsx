@@ -31,14 +31,19 @@ export const AuthProvider = ({ children }) => {
     const verifyToken = async () => {
       if (token) {
         try {
+          console.log('🔍 Verifying token...');
           const response = await axios.get(buildApiUrl(API_CONFIG.ENDPOINTS.AUTH.PROFILE));
+          console.log('✅ Token verified, user:', response.data.user);
           setUser(response.data.user);
         } catch (error) {
+          console.log('❌ Token verification failed:', error.response?.status, error.response?.data?.message);
           // Token is invalid, remove it
           localStorage.removeItem('token');
           setToken(null);
           setUser(null);
         }
+      } else {
+        console.log('🔍 No token found, user will be redirected to login');
       }
       setLoading(false);
     };
