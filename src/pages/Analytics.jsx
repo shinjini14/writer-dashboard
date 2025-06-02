@@ -867,9 +867,9 @@ const Analytics = () => {
 
                           {/* Extra Compact Content Info - Fixed Width */}
                           <Box sx={{
-                            width: '300px',
-                            minWidth: '300px',
-                            maxWidth: '300px',
+                            width: '280px',
+                            minWidth: '280px',
+                            maxWidth: '280px',
                             mr: 1,
                             overflow: 'hidden'
                           }}>
@@ -1095,7 +1095,7 @@ const Analytics = () => {
                                 cursor: 'pointer',
                                 transition: 'all 0.2s ease',
                                 '&:hover': {
-                                  bgcolor: 'rgba(230,184,0,0.9)',
+                                  bgcolor: 'rgba(228,184,0,0.9)',
                                   transform: 'translate(-50%, -50%) scale(1.1)'
                                 }
                               }}

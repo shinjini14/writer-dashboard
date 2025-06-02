@@ -44,7 +44,7 @@ const Content = () => {
   const [sortOrder, setSortOrder] = useState('desc');
   const [filterStatus, setFilterStatus] = useState('all');
   const [dateRange, setDateRange] = useState('28');
-  const [videoTypeFilter, setVideoTypeFilter] = useState('short'); // 'short', 'video' - start with shorts
+  const [videoTypeFilter, setVideoTypeFilter] = useState('short'); // 'short', 'video', 'full_to_short' - start with shorts
   const [currentPage, setCurrentPage] = useState(1);
   const [videosPerPage] = useState(20);
   const [pagination, setPagination] = useState({
@@ -217,6 +217,21 @@ const Content = () => {
         duration: "12:30",
         type: "video",
         status: "Published"
+      },
+      {
+        id: 3,
+        url: "https://youtube.com/watch?v=sample3",
+        title: "[Full to Short] Epic Story Condensed - The Ultimate Version",
+        writer_name: "Test Writer",
+        account_name: "ConvertedStories",
+        preview: "https://img.youtube.com/vi/sample3/maxresdefault.jpg",
+        views: 156000,
+        likes: 7800,
+        comments: 420,
+        posted_date: new Date(Date.now() - 86400000 * 3).toISOString(),
+        duration: "1:15",
+        type: "full_to_short",
+        status: "Published"
       }
     ];
   };
@@ -243,12 +258,24 @@ const Content = () => {
 
   // Format date for display
   const formatDate = (dateString) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric'
-    });
+    if (!dateString) return 'Unknown Date';
+
+    try {
+      const date = new Date(dateString);
+      // Check if date is valid
+      if (isNaN(date.getTime())) {
+        return 'Invalid Date';
+      }
+
+      return date.toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric'
+      });
+    } catch (error) {
+      console.error('Error formatting date:', error);
+      return 'Unknown Date';
+    }
   };
 
   // Format views count
@@ -527,6 +554,8 @@ const Content = () => {
                 setVideoTypeFilter('short'); // Shorts tab
               } else if (newValue === 1) {
                 setVideoTypeFilter('video'); // Videos tab
+              } else if (newValue === 2) {
+                setVideoTypeFilter('full_to_short'); // Full to Short tab
               }
               setCurrentPage(1); // Reset to first page when changing tabs
             }}
@@ -549,6 +578,7 @@ const Content = () => {
           >
             <Tab label="Shorts" />
             <Tab label="Videos" />
+            <Tab label="Full to Short" />
           </Tabs>
         </Box>
 
@@ -661,7 +691,7 @@ const Content = () => {
                       '&:hover': { color: 'white' }
                     }}
                   >
-                    {tabValue === 0 ? 'Short' : 'Video'}
+                    {tabValue === 0 ? 'Short' : tabValue === 1 ? 'Video' : 'Full to Short'}
                     {sortBy === 'title' && (
                       <ArrowDownIcon
                         sx={{

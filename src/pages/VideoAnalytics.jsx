@@ -25,11 +25,13 @@ import {
 } from '@mui/icons-material';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import Layout from '../components/Layout.jsx';
+import { useAuth } from '../contexts/AuthContext';
 import axios from 'axios';
 
 const VideoAnalytics = () => {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [tabValue, setTabValue] = useState(0);
   const [videoData, setVideoData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -41,8 +43,24 @@ const VideoAnalytics = () => {
     setLoading(true);
     setError(null);
     try {
-      const writerId = localStorage.getItem('writerId') || '106';
-      console.log('🎬 Fetching video analytics for ID:', id, 'Writer:', writerId);
+      // Get the correct writer ID - try to refresh from profile if needed
+      let writerId = user?.writerId || localStorage.getItem('writerId') || '106';
+
+      // If we're using the fallback writer ID, try to get the correct one from profile
+      if (writerId === '106') {
+        try {
+          const profileResponse = await axios.get('/api/auth/profile');
+          if (profileResponse.data.user.writerId) {
+            writerId = profileResponse.data.user.writerId.toString();
+            localStorage.setItem('writerId', writerId);
+            console.log('✅ Updated writer ID from profile:', writerId);
+          }
+        } catch (profileError) {
+          console.warn('Could not refresh writer ID from profile:', profileError);
+        }
+      }
+
+      console.log('🎬 Fetching video analytics for ID:', id, 'Writer:', writerId, 'User:', user?.username);
 
       const response = await axios.get(`/api/video/${id}`, {
         params: {
@@ -77,12 +95,33 @@ const VideoAnalytics = () => {
   }, [id, dateRange]); // Refetch when date range changes
 
   const formatNumber = (num) => {
+    if (!num || num === 0) return '0';
     if (num >= 1000000) {
       return (num / 1000000).toFixed(1) + 'M';
     } else if (num >= 1000) {
       return (num / 1000).toFixed(1) + 'K';
     }
     return num.toLocaleString();
+  };
+
+  const formatDate = (dateString) => {
+    if (!dateString) return 'Unknown Date';
+
+    try {
+      const date = new Date(dateString);
+      if (isNaN(date.getTime())) {
+        return 'Invalid Date';
+      }
+
+      return date.toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+      });
+    } catch (error) {
+      console.error('Error formatting date:', error);
+      return 'Unknown Date';
+    }
   };
 
   // Calculate engagement metrics dynamically
@@ -552,7 +591,10 @@ const VideoAnalytics = () => {
                     Published: {videoData.publishDate}
                   </Typography>
                   <Typography variant="body2" sx={{ color: '#888' }}>
-                    Duration: {videoData.duration}
+                    Duration: {videoData.duration || '0:00'}
+                  </Typography>
+                  <Typography variant="body2" sx={{ color: '#888' }}>
+                    Account: {videoData.account_name || 'Unknown Account'}
                   </Typography>
                 </Box>
 
@@ -592,6 +634,23 @@ const VideoAnalytics = () => {
                     fontSize: '60px'
                   }}>
                     {videoData.thumbnail || (videoData.isShort ? '🎯' : '📺')}
+                  </Box>
+
+                  {/* Duration overlay on thumbnail */}
+                  <Box sx={{
+                    position: 'absolute',
+                    bottom: 8,
+                    right: 8,
+                    bgcolor: 'rgba(0,0,0,0.8)',
+                    color: 'white',
+                    px: 1,
+                    py: 0.5,
+                    borderRadius: 1,
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    fontFamily: 'monospace'
+                  }}>
+                    {videoData.duration || '0:00'}
                   </Box>
 
                   {/* Play button overlay */}
@@ -638,7 +697,7 @@ const VideoAnalytics = () => {
                         <VolumeIcon />
                       </IconButton>
                       <Typography variant="caption" sx={{ color: 'white', mx: 1 }}>
-                        0:00 / {videoData.duration}
+                        0:00 / {videoData.duration || '0:00'}
                       </Typography>
                       <Box sx={{ flexGrow: 1 }} />
                       <IconButton size="small" sx={{ color: 'white' }}>

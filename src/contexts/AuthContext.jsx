@@ -43,6 +43,16 @@ export const AuthProvider = ({ children }) => {
           const response = await axios.get(buildApiUrl(API_CONFIG.ENDPOINTS.AUTH.PROFILE));
           console.log('✅ Token verified, user:', response.data.user);
           setUser(response.data.user);
+
+          // Store writer ID in localStorage if available
+          if (response.data.user.writerId) {
+            try {
+              localStorage.setItem('writerId', response.data.user.writerId.toString());
+              console.log('✅ Writer ID stored in localStorage:', response.data.user.writerId);
+            } catch (storageError) {
+              console.warn('Failed to save writerId to localStorage:', storageError);
+            }
+          }
         } catch (error) {
           console.log('❌ Token verification failed:', error.response?.status, error.response?.data?.message);
           // Token is invalid, remove it
@@ -90,6 +100,23 @@ export const AuthProvider = ({ children }) => {
       setToken(newToken);
       setUser(userData);
 
+      // Get writer ID after successful login
+      try {
+        const profileResponse = await axios.get(buildApiUrl(API_CONFIG.ENDPOINTS.AUTH.PROFILE));
+        if (profileResponse.data.user.writerId) {
+          localStorage.setItem('writerId', profileResponse.data.user.writerId.toString());
+          console.log('✅ Writer ID stored after login:', profileResponse.data.user.writerId);
+
+          // Update user data with writer ID
+          setUser({
+            ...userData,
+            writerId: profileResponse.data.user.writerId
+          });
+        }
+      } catch (profileError) {
+        console.warn('Failed to get writer ID after login:', profileError);
+      }
+
       console.log('✅ Login successful, user set:', userData);
     } catch (error) {
       console.error('❌ Login error:', error.response?.data || error.message);
@@ -100,8 +127,9 @@ export const AuthProvider = ({ children }) => {
   const logout = () => {
     try {
       localStorage.removeItem('token');
+      localStorage.removeItem('writerId');
     } catch (error) {
-      console.warn('Failed to remove token from localStorage:', error);
+      console.warn('Failed to remove token/writerId from localStorage:', error);
     }
     setToken(null);
     setUser(null);
