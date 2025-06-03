@@ -22,46 +22,71 @@ router.post('/login', async (req, res) => {
 
     console.log('🔐 Login attempt for username:', username);
 
-    // Find user in PostgreSQL database
-    const result = await pool.query(
-      "SELECT * FROM login WHERE username = $1 AND password = $2",
-      [username, password]
+    // Validate input
+    if (!username || !password) {
+      console.log('❌ Missing username or password');
+      return res.status(400).json({
+        success: false,
+        message: 'Username and password are required'
+      });
+    }
+
+    // First check if user exists
+    const userCheckResult = await pool.query(
+      "SELECT * FROM login WHERE username = $1",
+      [username]
     );
 
-    const user = result.rows[0];
-
-    if (user) {
-      console.log('✅ User found:', user.username, 'Role:', user.role);
-
-      // Generate JWT token
-      const token = jwt.sign(
-        {
-          id: user.id,
-          username: user.username,
-          role: user.role
-        },
-        process.env.JWT_SECRET || 'fallback_secret',
-        { expiresIn: "1h" }
-      );
-
-      res.json({
-        success: true,
-        token,
-        role: user.role,
-        username: user.username,
-        user: {
-          id: user.id,
-          username: user.username,
-          role: user.role
-        }
+    if (userCheckResult.rows.length === 0) {
+      console.log('❌ User not found:', username);
+      return res.status(401).json({
+        success: false,
+        message: "Invalid credentials"
       });
-    } else {
-      console.log('❌ Invalid credentials for username:', username);
-      res.json({ success: false, message: "Invalid credentials" });
     }
+
+    // Then check password
+    const user = userCheckResult.rows[0];
+    if (user.password !== password) {
+      console.log('❌ Password mismatch for username:', username);
+      return res.status(401).json({
+        success: false,
+        message: "Invalid credentials"
+      });
+    }
+
+    console.log('✅ User authenticated:', user.username, 'Role:', user.role);
+
+    // Generate JWT token
+    const token = jwt.sign(
+      {
+        id: user.id,
+        username: user.username,
+        role: user.role
+      },
+      process.env.JWT_SECRET || 'fallback_secret',
+      { expiresIn: "24h" }
+    );
+
+    res.json({
+      success: true,
+      token,
+      role: user.role,
+      username: user.username,
+      user: {
+        id: user.id,
+        username: user.username,
+        role: user.role
+      }
+    });
+
   } catch (error) {
     console.error("❌ Error logging in:", error);
-    res.status(500).json({ error: "Internal Server Error" });
+    res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
+      error: error.message
+    });
   }
 });
 
