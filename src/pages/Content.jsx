@@ -18,14 +18,17 @@ import {
   MenuItem,
   CircularProgress,
   FormControl,
-  Select
+  Select,
+  TextField,
+  InputAdornment
 } from '@mui/material';
 import {
   FilterList as FilterIcon,
   MoreVert as MoreVertIcon,
   KeyboardArrowDown as ArrowDownIcon,
   NavigateBefore as PrevIcon,
-  NavigateNext as NextIcon
+  NavigateNext as NextIcon,
+  Search as SearchIcon
 } from '@mui/icons-material';
 import Layout from '../components/Layout.jsx';
 import { useAuth } from '../contexts/AuthContext.jsx';
@@ -55,6 +58,9 @@ const Content = () => {
     hasNextPage: false,
     hasPrevPage: false
   });
+
+  // Modern search state
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Fetch writer-specific videos from InfluxDB and PostgreSQL
   const fetchContentData = async () => {
@@ -124,6 +130,16 @@ const Content = () => {
           videos = videos.filter(video =>
             video.status?.toLowerCase() === filterStatus.toLowerCase()
           );
+        }
+
+        // Apply search filtering
+        if (searchQuery.trim()) {
+          videos = videos.filter(video => {
+            const title = video.title?.toLowerCase() || '';
+            const url = video.url?.toLowerCase() || '';
+            const query = searchQuery.toLowerCase();
+            return title.includes(query) || url.includes(query);
+          });
         }
 
         setContentData(videos);
@@ -238,7 +254,7 @@ const Content = () => {
 
   useEffect(() => {
     fetchContentData();
-  }, [sortBy, sortOrder, filterStatus, dateRange, currentPage, videoTypeFilter]);
+  }, [sortBy, sortOrder, filterStatus, dateRange, currentPage, videoTypeFilter, searchQuery]);
 
   // Handle sort change
   const handleSort = (field) => {
@@ -665,6 +681,56 @@ const Content = () => {
               Private
             </MenuItem>
           </Menu>
+        </Box>
+
+        {/* Modern Search Bar */}
+        <Box sx={{ p: 2, borderBottom: '1px solid #333' }}>
+          <TextField
+            fullWidth
+            placeholder="Search content by title or URL..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            size="small"
+            slotProps={{
+              input: {
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon sx={{ color: '#ffb300' }} />
+                  </InputAdornment>
+                ),
+              },
+            }}
+            sx={{
+              maxWidth: 500,
+              '& .MuiOutlinedInput-root': {
+                bgcolor: 'rgba(255, 179, 0, 0.05)',
+                border: '1px solid rgba(255, 179, 0, 0.3)',
+                borderRadius: '12px',
+                transition: 'all 0.2s ease-in-out',
+                '& fieldset': { border: 'none' },
+                '&:hover': {
+                  bgcolor: 'rgba(255, 179, 0, 0.08)',
+                  borderColor: 'rgba(255, 179, 0, 0.5)',
+                  transform: 'translateY(-1px)',
+                  boxShadow: '0 4px 12px rgba(255, 179, 0, 0.15)',
+                },
+                '&.Mui-focused': {
+                  bgcolor: 'rgba(255, 179, 0, 0.1)',
+                  borderColor: '#ffb300',
+                  transform: 'translateY(-1px)',
+                  boxShadow: '0 4px 20px rgba(255, 179, 0, 0.25)',
+                },
+              },
+              '& .MuiInputBase-input': {
+                color: 'white',
+                fontSize: '0.95rem',
+                '&::placeholder': {
+                  color: 'rgba(255, 255, 255, 0.5)',
+                  opacity: 1,
+                },
+              },
+            }}
+          />
         </Box>
 
         {/* Content Table */}

@@ -42,6 +42,9 @@ const PreviousSubmissions = ({
   const [endDate, setEndDate] = useState(null);
   const [sortOrder, setSortOrder] = useState('desc');
 
+  // Modern search state
+  const [searchQuery, setSearchQuery] = useState('');
+
   const handleFilterClick = (event) => {
     setFilterAnchorEl(event.currentTarget);
   };
@@ -160,17 +163,24 @@ const PreviousSubmissions = ({
     }
   };
 
-  // Enhanced filtering logic from reference
+  // Enhanced filtering logic with modern search
   const filterSubmissions = () => {
     let filteredSubmissions = [...submissions];
+
+    // Apply modern search query (always active)
+    if (searchQuery.trim()) {
+      filteredSubmissions = filteredSubmissions.filter((submission) =>
+        submission.title.toLowerCase().includes(searchQuery.toLowerCase())
+      );
+    }
 
     // Reset filters for "Show All"
     if (filter === "Show All") {
       setStatusFilter(""); // Reset the status filter to show all statuses
-      return [...submissions]; // Return all scripts without further filtering
+      return filteredSubmissions; // Return filtered submissions
     }
 
-    // Filter by Title
+    // Filter by Title (legacy filter)
     if (filter === "Title") {
       filteredSubmissions = filteredSubmissions.filter((submission) =>
         submission.title.toLowerCase().includes(searchTitle.toLowerCase())
@@ -374,6 +384,55 @@ const PreviousSubmissions = ({
             Sort By {sortBy}
           </Button>
         </Box>
+      </Box>
+
+      {/* Modern Search Bar */}
+      <Box sx={{ mb: 3 }}>
+        <TextField
+          fullWidth
+          placeholder="Search submissions by title..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          size="small"
+          slotProps={{
+            input: {
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon sx={{ color: '#E6B800' }} />
+                </InputAdornment>
+              ),
+            },
+          }}
+          sx={{
+            '& .MuiOutlinedInput-root': {
+              bgcolor: 'rgba(255, 255, 255, 0.05)',
+              border: '1px solid rgba(230, 184, 0, 0.3)',
+              borderRadius: '12px',
+              transition: 'all 0.2s ease-in-out',
+              '& fieldset': { border: 'none' },
+              '&:hover': {
+                bgcolor: 'rgba(255, 255, 255, 0.08)',
+                borderColor: 'rgba(230, 184, 0, 0.5)',
+                transform: 'translateY(-1px)',
+                boxShadow: '0 4px 12px rgba(230, 184, 0, 0.15)',
+              },
+              '&.Mui-focused': {
+                bgcolor: 'rgba(255, 255, 255, 0.1)',
+                borderColor: '#E6B800',
+                transform: 'translateY(-1px)',
+                boxShadow: '0 4px 20px rgba(230, 184, 0, 0.25)',
+              },
+            },
+            '& .MuiInputBase-input': {
+              color: 'white',
+              fontSize: '0.95rem',
+              '&::placeholder': {
+                color: 'rgba(255, 255, 255, 0.5)',
+                opacity: 1,
+              },
+            },
+          }}
+        />
       </Box>
 
       {/* Enhanced Filter Menu */}
