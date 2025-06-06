@@ -45,13 +45,13 @@ const Analytics = () => {
   const [analyticsData, setAnalyticsData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [dateRange, setDateRange] = useState('last28days');
+  const [dateRange, setDateRange] = useState('last30days');
   const [tabValue, setTabValue] = useState(0);
   const [contentFilter, setContentFilter] = useState('all'); // 'all', 'content', 'shorts'
 
   const dateRangeOptions = [
     { value: 'last7days', label: 'Last 7 days' },
-    { value: 'last28days', label: 'Last 28 days' },
+    { value: 'last30days', label: 'Last 30 days' },
     { value: 'last90days', label: 'Last 90 days' },
     { value: 'last365days', label: 'Last 365 days' },
     { value: 'lifetime', label: 'Lifetime' },
@@ -204,13 +204,13 @@ const Analytics = () => {
       });
 
       // Convert dateRange to range parameter
-      let range = '28';
+      let range = '30';
       switch (dateRange) {
         case 'last7days':
           range = '7';
           break;
-        case 'last28days':
-          range = '28';
+        case 'last30days':
+          range = '30';
           break;
         case 'last90days':
           range = '90';

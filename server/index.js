@@ -1763,6 +1763,7 @@ async function getVideoLineChartData(url, timeRange = '7d') {
         |> filter(fn: (r) => r._measurement == "views")
         |> filter(fn: (r) => r._field == "views")
         |> filter(fn: (r) => r.url == "${url}")
+        |> aggregateWindow(every: 1h, fn: last, createEmpty: false)
         |> aggregateWindow(every: 1d, fn: last, createEmpty: false)
         |> sort(columns: ["_time"], desc: false)
     `;
@@ -1856,6 +1857,7 @@ async function getVideoHistoricalData(influxService, videoId, timeRange = '7d') 
         |> filter(fn: (r) => r._measurement == "views")
         |> filter(fn: (r) => r._field == "views")
         |> filter(fn: (r) => r.video_id == "${videoId}")
+        |> aggregateWindow(every: 1h, fn: last, createEmpty: false)
         |> aggregateWindow(every: 1d, fn: last, createEmpty: false)
         |> sort(columns: ["_time"], desc: false)
     `;
@@ -2014,6 +2016,7 @@ app.get("/api/video/:id/analytics", async (req, res) => {
             |> filter(fn: (r) => r._measurement == "views")
             |> filter(fn: (r) => r._field == "views")
             |> filter(fn: (r) => r.video_id == "${id}")
+            |> aggregateWindow(every: 1h, fn: last, createEmpty: false)
             |> aggregateWindow(every: 1d, fn: last, createEmpty: false)
             |> sort(columns: ["_time"], desc: false)
         `;

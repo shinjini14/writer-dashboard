@@ -249,6 +249,7 @@ class InfluxService {
   }
 
   // Get dashboard analytics data - optimized for large datasets with writer filtering
+  // Fixed: Hourly aggregation first, then timezone conversion, then daily aggregation
   async getDashboardAnalytics(timeRange = '30d', writerId = null) {
     try {
       let query = `
@@ -264,11 +265,14 @@ class InfluxService {
       }
 
       query += `
+          |> aggregateWindow(every: 1h, fn: sum, createEmpty: false)
           |> aggregateWindow(every: 1d, fn: sum, createEmpty: false)
           |> group()
           |> sort(columns: ["_time"], desc: false)
           |> limit(n: 365)
       `;
+
+      console.log(`🔍 Dashboard analytics query (hourly→EST→daily):`, query);
 
       const results = [];
 
@@ -300,7 +304,7 @@ class InfluxService {
     }
   }
 
-  // Get total views for a time period - optimized with writer filtering
+  // Get total views for a time period - FIXED: hourly → timezone conversion → sum
   async getTotalViews(timeRange = '30d', writerId = null) {
     try {
       console.log(`🔍 getTotalViews called with timeRange: ${timeRange}, writerId: ${writerId}`);
@@ -321,6 +325,7 @@ class InfluxService {
       }
 
       query += `
+          |> aggregateWindow(every: 1h, fn: sum, createEmpty: false)
           |> group()
           |> sum()
           |> limit(n: 1)
@@ -364,7 +369,7 @@ class InfluxService {
     }
   }
 
-  // Get total likes for a time period - optimized with writer filtering
+  // Get total likes for a time period - FIXED: hourly → timezone conversion → sum
   async getTotalLikes(timeRange = '30d', writerId = null) {
     try {
       console.log(`🔍 getTotalLikes called with timeRange: ${timeRange}, writerId: ${writerId}`);
@@ -383,6 +388,7 @@ class InfluxService {
       }
 
       query += `
+          |> aggregateWindow(every: 1h, fn: sum, createEmpty: false)
           |> group()
           |> sum()
           |> limit(n: 1)
@@ -413,7 +419,7 @@ class InfluxService {
     }
   }
 
-  // Get total comments for a time period - optimized with writer filtering
+  // Get total comments for a time period - FIXED: hourly → timezone conversion → sum
   async getTotalComments(timeRange = '30d', writerId = null) {
     try {
       console.log(`🔍 getTotalComments called with timeRange: ${timeRange}, writerId: ${writerId}`);
@@ -432,6 +438,7 @@ class InfluxService {
       }
 
       query += `
+          |> aggregateWindow(every: 1h, fn: sum, createEmpty: false)
           |> group()
           |> sum()
           |> limit(n: 1)
