@@ -144,6 +144,17 @@ const Content = () => {
 
         setContentData(videos);
         console.log('📺 Writer videos loaded:', videos.length, 'videos for writer', writerId, 'Page:', currentPage);
+
+        // Debug: Log sample video data to see account names
+        if (videos.length > 0) {
+          console.log('🔍 Sample video data:', {
+            title: videos[0].title,
+            account_name: videos[0].account_name,
+            writer_name: videos[0].writer_name,
+            views: videos[0].views,
+            url: videos[0].url
+          });
+        }
       } else {
         console.log('⚠️ No video data received, using mock data');
         setContentData(getMockData());
@@ -952,8 +963,14 @@ const Content = () => {
                     </Box>
                   </TableCell>
                   <TableCell sx={{ border: 'none', py: 2 }}>
-                    <Typography variant="body2" sx={{ color: 'white' }}>
-                      {item.account_name || item.writer_name || 'Writer Account'}
+                    <Typography
+                      variant="body2"
+                      sx={{
+                        color: item.account_name ? 'white' : '#888',
+                        fontStyle: item.account_name ? 'normal' : 'italic'
+                      }}
+                    >
+                      {item.account_name || `[No Account] ${item.writer_name || 'Writer'}`}
                     </Typography>
                   </TableCell>
                   <TableCell sx={{ border: 'none', py: 2 }}>

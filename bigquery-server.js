@@ -245,7 +245,7 @@ app.get("/api/writer/views", authenticateToken, async (req, res) => {
     // Build the exclusion part for BigQuery
     let urlExclusionClause = "";
     let bigQueryParams = {
-      writer_name: writerName, // Use actual writer name from PostgreSQL
+      writer_id: parseInt(writer_id), // Use writer_id for BigQuery table
       startDate,
       endDate,
     };
@@ -261,20 +261,20 @@ app.get("/api/writer/views", authenticateToken, async (req, res) => {
       });
     }
 
-    // Build the final BigQuery SQL using new table schema
+    // Build the final BigQuery SQL using correct table schema
     const projectId = process.env.BIGQUERY_PROJECT_ID || "speedy-web-461014-g3";
-    const dataset = process.env.BIGQUERY_DATASET || "influx_aggregated";
-    const table = process.env.BIGQUERY_TABLE || "daily_view_growth";
+    const dataset = "dbt_youtube_analytics";
+    const table = "youtube_metadata_historical";
 
     const query = `
-      SELECT date AS time, SUM(views_gained) AS views
+      SELECT snapshot_date AS time, SUM(CAST(statistics_view_count AS INT64)) AS views
       FROM \`${projectId}.${dataset}.${table}\`
-      WHERE writer_name = @writer_name
-        AND date BETWEEN @startDate AND @endDate
-        AND date < DATE_SUB(CURRENT_DATE(), INTERVAL 1 DAY)
+      WHERE writer_id = @writer_id
+        AND snapshot_date BETWEEN @startDate AND @endDate
+        AND snapshot_date < DATE_SUB(CURRENT_DATE(), INTERVAL 1 DAY)
         ${urlExclusionClause}
-      GROUP BY date
-      ORDER BY date DESC;
+      GROUP BY snapshot_date
+      ORDER BY snapshot_date DESC;
     `;
 
     // Run the query

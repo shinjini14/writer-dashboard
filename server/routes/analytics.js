@@ -54,28 +54,40 @@ const setupBigQueryClient = async () => {
   }
 };
 
-// Initialize BigQuery client
+// Use global BigQuery client instead of local initialization
 let bigquery = null;
 
+// Initialize BigQuery client on startup
 const initializeBigQuery = async () => {
   try {
     bigquery = await setupBigQueryClient();
-    console.log('🎯 BigQuery client ready for requests');
+    console.log('✅ Analytics routes: BigQuery client initialized successfully');
   } catch (error) {
-    console.error('❌ Failed to initialize BigQuery:', error);
-    bigquery = null;
+    console.error('❌ Analytics routes: Failed to initialize BigQuery client:', error);
   }
 };
 
-// Initialize BigQuery on module load
+// Initialize immediately
 initializeBigQuery();
+
+const getBigQueryClient = () => {
+  // Use global client if available, otherwise try local initialization
+  if (global.bigqueryClient) {
+    return global.bigqueryClient;
+  }
+
+  // Fallback to local client if global not available
+  return bigquery;
+};
 
 // BigQuery helper functions
 async function getBigQueryViews(writerId, startDate, endDate) {
   try {
     console.log(`📊 Dynamic Analytics Strategy: Getting views for writer ${writerId} from ${startDate} to ${endDate}`);
 
-    if (!bigquery) {
+    // Use global BigQuery client
+    const bigqueryClient = getBigQueryClient();
+    if (!bigqueryClient) {
       throw new Error('BigQuery client not initialized');
     }
 
@@ -234,7 +246,7 @@ async function getBigQueryViews(writerId, startDate, endDate) {
           ORDER BY snapshot_date ASC;
         `;
 
-        const [bigQueryRows] = await bigquery.query({
+        const [bigQueryRows] = await bigqueryClient.query({
           query: bigQueryQuery,
           params: {
             writer_id: parseInt(writerId),
@@ -560,14 +572,10 @@ async function getBigQueryTopVideos(writerId, startDate, endDate, limit = 10) {
   }
 }
 
-// BigQuery function for Content page videos
-async function getBigQueryContentVideos(writerId, dateRange, page = 1, limit = 20, type = 'all') {
+// PostgreSQL-based Content function with BigQuery account name enhancement
+async function getPostgresContentVideosWithBigQueryNames(writerId, dateRange, page = 1, limit = 20, type = 'all') {
   try {
-    console.log(`🎬 BigQuery: Getting content videos for writer ${writerId}, range: ${dateRange}, type: ${type}`);
-
-    if (!bigquery) {
-      throw new Error('BigQuery client not initialized');
-    }
+    console.log(`🎬 PostgreSQL Content: Getting videos for writer ${writerId}, range: ${dateRange}, type: ${type}`);
 
     // Get writer name from PostgreSQL
     const writerQuery = `SELECT name FROM writer WHERE id = $1`;
@@ -580,193 +588,192 @@ async function getBigQueryContentVideos(writerId, dateRange, page = 1, limit = 2
     const writerName = writerRows[0].name;
     console.log(`📝 Found writer name: ${writerName} for content videos`);
 
-    // Calculate date range
-    let dateCondition = '';
-    let dateParam = null;
-
-    if (dateRange !== 'lifetime') {
-      const days = parseInt(dateRange) || 28;
-      const startDate = new Date();
-      startDate.setDate(startDate.getDate() - days);
-      dateParam = startDate.toISOString().split('T')[0];
-      dateCondition = 'AND date >= @startDate';
-    }
-
-    // Build type filter - Note: BigQuery filtering is limited to URL patterns
-    // We'll do more precise filtering after getting video_cat from PostgreSQL
-    let typeCondition = '';
-    if (type === 'short') {
-      typeCondition = "AND url LIKE '%/shorts/%'";
-    } else if (type === 'video') {
-      typeCondition = "AND url NOT LIKE '%/shorts/%'";
-    } else if (type === 'full_to_short') {
-      // For full_to_short, we can't filter in BigQuery, will filter after PostgreSQL lookup
-      typeCondition = "";
-    }
-    // Note: Additional filtering based on video_cat will be done after PostgreSQL lookup
-
-    const projectId = process.env.BIGQUERY_PROJECT_ID || "speedy-web-461014-g3";
-    const dataset = process.env.BIGQUERY_DATASET || "dashboard_prod";
-    const table = process.env.BIGQUERY_TABLE || "daily_view_growth";
-
-    // Simple PostgreSQL query to get paginated videos with all needed data
-    const query = `
+    // Step 1: Get ALL videos from PostgreSQL (primary source)
+    const postgresQuery = `
       SELECT
-        video.id as video_id,
-        video.script_title AS title,
-        video.url,
-        COALESCE(statistics_youtube_api.views_total, 0) AS total_views,
-        COALESCE(statistics_youtube_api.likes_total, 0) AS total_likes,
-        COALESCE(statistics_youtube_api.comments_total, 0) AS total_comments,
-        statistics_youtube_api.preview,
-        statistics_youtube_api.duration,
-        statistics_youtube_api.posted_date as first_date
-      FROM video
-      LEFT JOIN statistics_youtube_api
-          ON CAST(video.id AS VARCHAR) = statistics_youtube_api.video_id
-      WHERE video.writer_id = $1
-        AND video.url LIKE '%youtube.com%'
-        AND statistics_youtube_api.views_total IS NOT NULL
-        AND statistics_youtube_api.duration IS NOT NULL
-        ${dateCondition}
-        ${typeCondition}
-      ORDER BY statistics_youtube_api.views_total DESC
-      LIMIT $2 OFFSET $3
+        v.id,
+        v.script_title as title,
+        v.url,
+        v.writer_id,
+        v.video_cat,
+        COALESCE(s.views_total, 0) as views,
+        COALESCE(s.likes_total, 0) as likes,
+        COALESCE(s.comments_total, 0) as comments,
+        s.posted_date,
+        s.duration,
+        s.preview,
+        pa.account as account_name
+      FROM video v
+      LEFT JOIN statistics_youtube_api s ON CAST(v.id AS VARCHAR) = s.video_id
+      LEFT JOIN posting_accounts pa ON v.account_id = pa.id
+      WHERE v.writer_id = $1
+        AND v.url LIKE '%youtube.com%'
+      ORDER BY v.id DESC
     `;
 
-    // Build parameters for PostgreSQL
-    const queryParams = [
-      parseInt(writerId),
-      parseInt(limit),
-      (parseInt(page) - 1) * parseInt(limit)
-    ];
+    const { rows: postgresRows } = await pool.query(postgresQuery, [parseInt(writerId)]);
+    console.log(`📊 PostgreSQL returned ${postgresRows.length} videos for writer ${writerId}`);
 
-    if (dateParam) {
-      queryParams.push(dateParam);
+    // Step 2: Enhance account names with BigQuery data if available
+    let bigQueryAccountMap = new Map();
+
+    if (bigquery && postgresRows.length > 0) {
+      try {
+        const projectId = process.env.BIGQUERY_PROJECT_ID || "speedy-web-461014-g3";
+        const dataset = "dbt_youtube_analytics";
+        const reportTable = "youtube_video_report_historical";
+
+        const bigQueryQuery = `
+          SELECT DISTINCT
+            video_id,
+            account_name,
+            channel_title
+          FROM \`${projectId}.${dataset}.${reportTable}\`
+          WHERE writer_name = @writer_name
+            AND video_id IS NOT NULL
+            AND (account_name IS NOT NULL OR channel_title IS NOT NULL)
+        `;
+
+        const [bigQueryRows] = await bigquery.query({
+          query: bigQueryQuery,
+          params: { writer_name: writerName }
+        });
+
+        // Create map of video_id to account names
+        bigQueryRows.forEach(row => {
+          if (row.video_id) {
+            bigQueryAccountMap.set(row.video_id, {
+              account_name: row.account_name,
+              channel_title: row.channel_title
+            });
+          }
+        });
+
+        console.log(`📊 BigQuery enhanced account names for ${bigQueryAccountMap.size} videos`);
+
+        // Debug: Show sample BigQuery account data
+        if (bigQueryAccountMap.size > 0) {
+          const sampleEntry = Array.from(bigQueryAccountMap.entries())[0];
+          console.log(`🔍 Sample BigQuery account data:`, {
+            video_id: sampleEntry[0],
+            account_name: sampleEntry[1].account_name,
+            channel_title: sampleEntry[1].channel_title
+          });
+        }
+      } catch (bigQueryError) {
+        console.log(`⚠️ BigQuery account enhancement failed, using PostgreSQL only:`, bigQueryError.message);
+      }
     }
 
-    console.log('🔍 PostgreSQL content videos query:', query);
-    console.log('📊 Query params:', queryParams);
+    // Step 3: Transform PostgreSQL data with BigQuery account name enhancement
+    const videos = postgresRows.map(row => {
+      // Extract YouTube video ID for BigQuery lookup
+      const youtubeVideoId = extractVideoId(row.url);
+      const bigQueryData = bigQueryAccountMap.get(youtubeVideoId) || {};
 
-    const { rows } = await pool.query(query, queryParams);
-
-    // Get total count for pagination using PostgreSQL
-    const countQuery = `
-      SELECT COUNT(*) as total_count
-      FROM video
-      LEFT JOIN statistics_youtube_api
-          ON CAST(video.id AS VARCHAR) = statistics_youtube_api.video_id
-      WHERE video.writer_id = $1
-        AND video.url LIKE '%youtube.com%'
-        AND statistics_youtube_api.views_total IS NOT NULL
-        AND statistics_youtube_api.duration IS NOT NULL
-        ${dateCondition}
-        ${typeCondition}
-    `;
-
-    const countParams = [parseInt(writerId)];
-    if (dateParam) {
-      countParams.push(dateParam);
-    }
-
-    const { rows: countRows } = await pool.query(countQuery, countParams);
-    const totalVideos = parseInt(countRows[0]?.total_count || 0);
-    const totalPages = Math.ceil(totalVideos / parseInt(limit));
-
-    console.log(`🎬 PostgreSQL returned ${rows.length} content videos for writer ${writerId}`);
-
-    // Helper function to determine video type using video_cat as primary source
-    const getVideoType = (url, videoCat) => {
-      // Primary: Use video_cat from database
-      if (videoCat === 'short') {
-        return 'short';
-      } else if (videoCat === 'long') {
-        return 'video';
-      } else if (videoCat === 'full to short') {
-        return 'full_to_short';
+      // Debug: Show video ID matching for first few videos
+      if (bigQueryAccountMap.size > 0 && Math.random() < 0.1) { // 10% chance to log
+        console.log(`🔍 Video ID matching debug:`, {
+          postgres_url: row.url,
+          extracted_video_id: youtubeVideoId,
+          bigquery_has_data: !!bigQueryData.account_name || !!bigQueryData.channel_title,
+          bigquery_account_name: bigQueryData.account_name,
+          bigquery_channel_title: bigQueryData.channel_title
+        });
       }
 
-      // Secondary: Fallback to URL pattern detection
-      if (url && url.includes('/shorts/')) {
-        return 'short';
-      } else if (url && (url.includes('youtu.be/') && url.length < 50)) {
-        return 'short';
-      }
-
-      // Default: long-form video
-      return 'video';
-    };
-
-    // Transform data for Content page format - only process videos with duration data
-    const videos = rows
-      .filter(row => row.duration) // Only process videos with actual duration data
-      .map(row => {
-      // Use actual duration from database (no fallbacks)
-      const duration = row.duration;
-
-      // Determine video type based on duration (< 3 minutes = short, >= 3 minutes = video)
+      // Determine video type based on video_cat or duration
       let videoType = 'video'; // default
       let isShort = false;
 
-      const parts = duration.split(':');
-      if (parts.length >= 2) {
-        const minutes = parseInt(parts[0]) || 0;
-        const seconds = parseInt(parts[1]) || 0;
-        const totalSeconds = minutes * 60 + seconds;
-
-        if (totalSeconds < 180) { // Less than 3 minutes (180 seconds)
+      if (row.video_cat) {
+        // Use existing video_cat logic
+        if (row.video_cat.toLowerCase().includes('short')) {
+          videoType = 'short';
+          isShort = true;
+        }
+      } else if (row.duration) {
+        // Fallback to duration-based logic
+        const durationParts = row.duration.split(':');
+        const totalSeconds = parseInt(durationParts[0]) * 60 + parseInt(durationParts[1] || 0);
+        if (totalSeconds <= 180) { // 3 minutes or less
           videoType = 'short';
           isShort = true;
         }
       }
 
+      // Calculate engagement rate
+      const engagement = row.views > 0
+        ? Math.round(((row.likes + row.comments) / row.views) * 100 * 100) / 100
+        : 0;
+
+      // Use whatever account name is available: BigQuery account_name, channel_title, or PostgreSQL account_name
+      const enhancedAccountName = bigQueryData.account_name || bigQueryData.channel_title || row.account_name || 'Not Available';
+
       return {
-        id: row.video_id,
-        title: row.title || `Video ${row.video_id}`,
+        id: row.id,
+        title: row.title || 'Untitled Video',
         url: row.url,
-        preview: row.preview || `https://img.youtube.com/vi/${extractVideoId(row.url)}/maxresdefault.jpg`,
-        views: parseInt(row.total_views || 0),
-        likes: parseInt(row.total_likes || 0),
-        comments: parseInt(row.total_comments || 0),
-        posted_date: row.first_date || new Date().toISOString(),
-        duration: duration,
+        writer_id: parseInt(writerId),
+        writer_name: writerName,
+        account_name: enhancedAccountName,
+        preview: row.preview || `https://img.youtube.com/vi/${youtubeVideoId}/maxresdefault.jpg`,
+        views: parseInt(row.views) || 0,
+        likes: parseInt(row.likes) || 0,
+        comments: parseInt(row.comments) || 0,
+        posted_date: row.posted_date || new Date().toISOString(),
+        duration: row.duration || '0:00',
         type: videoType,
         isShort: isShort,
-        status: 'Published',
-        writer_id: writerId,
-        writer_name: writerName,
-        engagement: Math.floor(Math.random() * 15) + 85
+        engagement: engagement,
+        status: "Published",
+        source: bigQueryData.account_name || bigQueryData.channel_title ? 'postgres_enhanced_with_bigquery_names' : 'postgres_only'
       };
     });
 
-    // Apply additional filtering based on video type
+    // Step 4: Apply type filtering
     let filteredVideos = videos;
-    if (type === 'short') {
-      filteredVideos = videos.filter(video => video.type === 'short');
-    } else if (type === 'video') {
-      filteredVideos = videos.filter(video => video.type === 'video');
+
+    if (type === 'short' || type === 'shorts') {
+      filteredVideos = videos.filter(video => video.isShort);
+    } else if (type === 'video' || type === 'content') {
+      filteredVideos = videos.filter(video => !video.isShort);
     }
+    // If type === 'all', show all videos (no filtering)
 
-    console.log(`🎬 After video_cat filtering: ${filteredVideos.length}/${videos.length} videos match type '${type}'`);
+    // Calculate type counts
+    const shortCount = videos.filter(v => v.isShort).length;
+    const videoCount = videos.filter(v => !v.isShort).length;
 
-    // Recalculate pagination based on filtered results
-    const filteredTotalVideos = filteredVideos.length;
-    const filteredTotalPages = Math.ceil(filteredTotalVideos / parseInt(limit));
+    console.log(`🎬 Type filtering results: ${filteredVideos.length}/${videos.length} videos match type '${type}'`);
+    console.log(`📊 Type breakdown: ${shortCount} shorts, ${videoCount} videos`);
+
+    // Step 5: Apply pagination
+    const startIndex = (parseInt(page) - 1) * parseInt(limit);
+    const endIndex = startIndex + parseInt(limit);
+    const paginatedVideos = filteredVideos.slice(startIndex, endIndex);
+
+    console.log(`📄 Pagination: Page ${page}, showing ${startIndex + 1}-${Math.min(endIndex, filteredVideos.length)} of ${filteredVideos.length} filtered videos`);
 
     return {
-      videos: filteredVideos,
+      videos: paginatedVideos,
       pagination: {
         currentPage: parseInt(page),
-        totalPages: filteredTotalPages,
-        totalVideos: filteredTotalVideos,
+        totalPages: Math.ceil(filteredVideos.length / parseInt(limit)),
+        totalVideos: filteredVideos.length,
         videosPerPage: parseInt(limit),
-        hasNextPage: parseInt(page) < filteredTotalPages,
+        hasNextPage: endIndex < filteredVideos.length,
         hasPrevPage: parseInt(page) > 1
+      },
+      typeCounts: {
+        all: videos.length,
+        short: shortCount,
+        video: videoCount
       }
     };
 
   } catch (error) {
-    console.error('❌ BigQuery content videos query error:', error);
+    console.error('❌ PostgreSQL content videos query error:', error);
     throw error;
   }
 }
@@ -774,8 +781,27 @@ async function getBigQueryContentVideos(writerId, dateRange, page = 1, limit = 2
 // Helper function to extract video ID from YouTube URL
 function extractVideoId(url) {
   if (!url) return 'dQw4w9WgXcQ'; // Default video ID
-  const match = url.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/);
-  return match ? match[1] : 'dQw4w9WgXcQ';
+
+  // Handle YouTube Shorts URLs: https://youtube.com/shorts/VIDEO_ID
+  const shortsMatch = url.match(/youtube\.com\/shorts\/([a-zA-Z0-9_-]{11})/);
+  if (shortsMatch) {
+    return shortsMatch[1];
+  }
+
+  // Handle regular YouTube URLs: https://youtube.com/watch?v=VIDEO_ID
+  const regularMatch = url.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/);
+  return regularMatch ? regularMatch[1] : 'dQw4w9WgXcQ';
+}
+
+// Helper function to format duration from seconds to MM:SS format
+function formatDuration(seconds) {
+  if (!seconds || seconds === 0) return '0:00';
+
+  const totalSeconds = parseInt(seconds);
+  const minutes = Math.floor(totalSeconds / 60);
+  const remainingSeconds = totalSeconds % 60;
+
+  return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
 }
 
 // Middleware to verify JWT token
@@ -2523,22 +2549,39 @@ router.get('/debug-influx', authenticateToken, async (req, res) => {
 });
 
 // BigQuery-powered Content page endpoint
-router.get('/writer/videos', authenticateToken, async (req, res) => {
+router.get('/videos', authenticateToken, async (req, res) => {
+  console.log(`🚀 BIGQUERY CONTENT ENDPOINT CALLED! Query params:`, req.query);
+  console.log(`🚀 BIGQUERY CONTENT ENDPOINT: Headers:`, req.headers.authorization ? 'Token present' : 'No token');
+
   try {
     const { writer_id, range = '28', page = '1', limit = '20', type = 'all' } = req.query;
 
     if (!writer_id) {
+      console.log(`❌ BigQuery Content API: Missing writer_id`);
       return res.status(400).json({ error: 'missing writer_id' });
     }
 
-    console.log(`🎬 BigQuery Content API: Getting videos for writer ${writer_id}, range: ${range}, page: ${page}, type: ${type}`);
+    console.log(`🎬 PostgreSQL Content API: Getting videos for writer ${writer_id}, range: ${range}, page: ${page}, type: ${type}`);
+    console.log(`🔍 PostgreSQL Content API: Authenticated user:`, req.user);
 
     try {
-      // Use BigQuery for content data
-      const result = await getBigQueryContentVideos(writer_id, range, page, limit, type);
+      console.log(`🔍 PostgreSQL Content API: About to call getPostgresContentVideosWithBigQueryNames...`);
+      // Use PostgreSQL data enhanced with BigQuery account names
+      const result = await getPostgresContentVideosWithBigQueryNames(writer_id, range, page, limit, type);
 
       console.log(`✅ BigQuery Content: Found ${result.videos.length} videos for writer ${writer_id}`);
       console.log(`📊 Pagination: Page ${result.pagination.currentPage}/${result.pagination.totalPages}, Total: ${result.pagination.totalVideos}`);
+
+      // Debug: Log sample video data to see account names
+      if (result.videos.length > 0) {
+        console.log(`🔍 Sample BigQuery video data:`, {
+          title: result.videos[0].title,
+          account_name: result.videos[0].account_name,
+          writer_name: result.videos[0].writer_name,
+          views: result.videos[0].views,
+          url: result.videos[0].url
+        });
+      }
 
       // Return the data in the format expected by Content.jsx
       if (result.pagination) {
@@ -2559,6 +2602,8 @@ router.get('/writer/videos', authenticateToken, async (req, res) => {
 
     } catch (bigQueryError) {
       console.error('❌ BigQuery error in content endpoint:', bigQueryError);
+      console.error('❌ BigQuery error stack:', bigQueryError.stack);
+      console.error('❌ BigQuery error message:', bigQueryError.message);
 
       // Fallback to mock data
       console.log('🔄 Using mock data fallback for content');
@@ -2632,8 +2677,10 @@ router.get('/writer/videos', authenticateToken, async (req, res) => {
     }
 
   } catch (error) {
-    console.error('❌ Content endpoint error:', error);
-    res.status(500).json({ error: 'Server error' });
+    console.error('❌ BigQuery Content endpoint error:', error);
+    console.error('❌ Error stack:', error.stack);
+    console.error('❌ Error message:', error.message);
+    res.status(500).json({ error: 'Failed to fetch content data', details: error.message });
   }
 });
 
