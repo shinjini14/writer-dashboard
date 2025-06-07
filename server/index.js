@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
 const http = require('http');
+const jwt = require('jsonwebtoken');
 const { Server } = require('socket.io');
 const WebSocket = require('ws');
 const axios = require('axios');
@@ -310,7 +311,7 @@ app.post("/api/scripts", async (req, res) => {
       // Use the server's own URL for the API call
       const serverUrl =
         process.env.SERVER_URL || `http://localhost:${PORT}`;
-      await axios.post(`${serverUrl}/api/getPostingAccount`, {
+      const response = await axios.post(`${serverUrl}/api/getPostingAccount`, {
         trello_card_id: trelloCardId,
         ignore_daily_limit: Boolean(isStoryLine),
       });

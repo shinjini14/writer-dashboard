@@ -134,8 +134,8 @@ const Analytics = () => {
         }
       }
 
-      // Fetch top content and latest content using dedicated PostgreSQL endpoints
-      console.log('📊 Fetching top content and latest content using dedicated PostgreSQL endpoints');
+      // Fetch top content and latest content using writer-specific endpoints
+      console.log('📊 Fetching top content and latest content using writer-specific endpoints');
       const topVideosData = await fetchTopContent();
       console.log('📊 fetchTopContent returned:', topVideosData);
       const latestContentData = await fetchLatestContent();
@@ -189,13 +189,13 @@ const Analytics = () => {
     }
   };
 
-  // PostgreSQL-powered functions using dedicated top content endpoint
+  // Writer-specific top content function with BigQuery enhancement
   const fetchTopContent = async (filterType = contentFilter) => {
     try {
       const token = localStorage.getItem('token');
       let writerId = localStorage.getItem('writerId') || '110';
 
-      console.log('🏆 Fetching top content from dedicated PostgreSQL endpoint');
+      console.log('🏆 Fetching top content for writer with BigQuery enhancement');
       console.log('🔍 Debug info:', {
         writerId: writerId,
         filterType: filterType,
@@ -225,9 +225,9 @@ const Analytics = () => {
           range = '28';
       }
 
-      // Use dedicated top content endpoint with writer_id parameter (same as analytics overview)
+      // Use writer-specific top content endpoint
       const url = `${buildApiUrl('/api/analytics/writer/top-content')}?writer_id=${writerId}&range=${range}&limit=10&type=${filterType}`;
-      console.log('🔗 Top content URL (using dedicated endpoint):', url);
+      console.log('🔗 Top content URL (using writer-specific endpoint):', url);
       console.log('🔍 Debug - writerId:', writerId, 'range:', range, 'filterType:', filterType);
 
       const response = await fetch(url, {
@@ -248,7 +248,12 @@ const Analytics = () => {
 
         if (topContent.length > 0) {
           console.log('📊 Sample top content:', topContent[0]);
-          console.log('📊 All top content views:', topContent.map(v => ({ title: v.title, views: v.views })));
+          console.log('📊 All top content views:', topContent.map(v => ({
+            title: v.title,
+            views: v.views,
+            account_name: v.account_name || v.channelTitle,
+            writer_name: v.writer_name
+          })));
 
           return topContent;
         }
@@ -270,11 +275,11 @@ const Analytics = () => {
       const token = localStorage.getItem('token');
       let writerId = localStorage.getItem('writerId') || '110';
 
-      console.log('📅 Fetching latest content from dedicated PostgreSQL endpoint');
+      console.log('📅 Fetching latest content for writer with BigQuery enhancement');
 
-      // Use dedicated latest content endpoint with writer_id parameter (same as analytics overview)
+      // Use writer-specific latest content endpoint
       const url = `${buildApiUrl('/api/analytics/writer/latest-content')}?writer_id=${writerId}`;
-      console.log('🔗 Latest content URL (using dedicated endpoint):', url);
+      console.log('🔗 Latest content URL (using writer-specific endpoint):', url);
 
       const response = await fetch(url, {
         headers: {
@@ -291,6 +296,15 @@ const Analytics = () => {
 
         const latestContent = result.data || null;
         console.log('📅 Latest content found:', latestContent?.title || 'None');
+
+        if (latestContent) {
+          console.log('📊 Latest content data:', {
+            title: latestContent.title,
+            account_name: latestContent.account_name || latestContent.channelTitle,
+            writer_name: latestContent.writer_name,
+            views: latestContent.views
+          });
+        }
 
         return latestContent;
       } else {
@@ -811,7 +825,7 @@ const Analytics = () => {
                           <Box sx={{ position: 'relative' }}>
                             <Box
                               component="img"
-                              src={content.thumbnail || content.preview || `https://img.youtube.com/vi/${content.url?.split('v=')[1] || content.url?.split('/').pop()}/maxresdefault.jpg`}
+                              src={content.highThumbnail || content.mediumThumbnail || content.thumbnail || content.preview || `https://img.youtube.com/vi/${content.url?.split('v=')[1] || content.url?.split('/').pop()}/maxresdefault.jpg`}
                               sx={{
                                 width: 50,
                                 height: 32,
@@ -833,7 +847,7 @@ const Analytics = () => {
                               sx={{
                                 width: 50,
                                 height: 32,
-                                bgcolor: content.type === 'short' || content.url?.includes('shorts') ? '#4CAF50' : '#2196F3',
+                                bgcolor: content.type === 'short' ? '#4CAF50' : '#2196F3',
                                 borderRadius: '3px',
                                 border: '1px solid #333',
                                 display: 'none',
@@ -842,7 +856,7 @@ const Analytics = () => {
                                 fontSize: '14px'
                               }}
                             >
-                              {content.type === 'short' || content.url?.includes('shorts') ? '🎯' : '📺'}
+                              {content.type === 'short' ? '🎯' : '📺'}
                             </Box>
 
                             {/* Duration overlay */}
@@ -895,12 +909,12 @@ const Analytics = () => {
                               width: '100%',
                               display: 'block'
                             }}>
-                              {content.url && (
+                              {content.type && (
                                 <Box component="span" sx={{ mr: 0.5 }}>
-                                  {content.url.includes('shorts') ? '📱' : '🎬'} •
+                                  {content.type === 'short' ? '📱' : '🎬'} •
                                 </Box>
                               )}
-                              {content.account_name || content.writer_name || 'Unknown Account'} • {content.posted_date ? new Date(content.posted_date).toLocaleDateString() : 'Unknown'}
+                              {content.account_name || content.channelTitle || content.writer_name || 'Not Available'} • {content.posted_date ? new Date(content.posted_date).toLocaleDateString() : 'Unknown'}
                             </Typography>
                           </Box>
 
@@ -1040,7 +1054,7 @@ const Analytics = () => {
                           <Box sx={{ position: 'relative', mb: 3 }}>
                             <Box
                               component="img"
-                              src={analyticsData.latestContent.thumbnail || analyticsData.latestContent.preview || `https://img.youtube.com/vi/${analyticsData.latestContent.url?.split('v=')[1] || analyticsData.latestContent.url?.split('/').pop()}/maxresdefault.jpg`}
+                              src={analyticsData.latestContent.highThumbnail || analyticsData.latestContent.mediumThumbnail || analyticsData.latestContent.thumbnail || analyticsData.latestContent.preview || `https://img.youtube.com/vi/${analyticsData.latestContent.url?.split('v=')[1] || analyticsData.latestContent.url?.split('/').pop()}/maxresdefault.jpg`}
                               sx={{
                                 width: '100%',
                                 height: 140,
@@ -1064,7 +1078,7 @@ const Analytics = () => {
                               sx={{
                                 width: '100%',
                                 height: 140,
-                                bgcolor: analyticsData.latestContent.type === 'short' || analyticsData.latestContent.url?.includes('shorts') ? '#4CAF50' : '#2196F3',
+                                bgcolor: analyticsData.latestContent.type === 'short' ? '#4CAF50' : '#2196F3',
                                 borderRadius: '8px',
                                 border: '2px solid #333',
                                 display: 'none',
@@ -1075,7 +1089,7 @@ const Analytics = () => {
                               }}
                               onClick={() => analyticsData.latestContent.url && window.open(analyticsData.latestContent.url, '_blank')}
                             >
-                              {analyticsData.latestContent.type === 'short' || analyticsData.latestContent.url?.includes('shorts') ? '🎯' : '📺'}
+                              {analyticsData.latestContent.type === 'short' ? '🎯' : '📺'}
                             </Box>
 
                             {/* Play Button Overlay */}
@@ -1130,7 +1144,7 @@ const Analytics = () => {
                                 position: 'absolute',
                                 top: 8,
                                 left: 8,
-                                bgcolor: analyticsData.latestContent.type === 'short' || analyticsData.latestContent.url?.includes('shorts') ? '#4CAF50' : '#2196F3',
+                                bgcolor: analyticsData.latestContent.type === 'short' ? '#4CAF50' : '#2196F3',
                                 color: 'white',
                                 px: 1.5,
                                 py: 0.5,
@@ -1140,7 +1154,7 @@ const Analytics = () => {
                                 textTransform: 'uppercase'
                               }}
                             >
-                              {analyticsData.latestContent.type === 'short' || analyticsData.latestContent.url?.includes('shorts') ? 'SHORT' : 'VIDEO'}
+                              {analyticsData.latestContent.type === 'short' ? 'SHORT' : 'VIDEO'}
                             </Box>
                           </Box>
 
@@ -1160,7 +1174,7 @@ const Analytics = () => {
                             <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
                               <Typography variant="caption" sx={{ color: '#888' }}>Account</Typography>
                               <Typography variant="caption" sx={{ color: 'white', fontWeight: 600 }}>
-                                {analyticsData.latestContent.account_name || analyticsData.latestContent.writer_name || 'Unknown Account'}
+                                {analyticsData.latestContent.account_name || analyticsData.latestContent.channelTitle || analyticsData.latestContent.writer_name || 'Not Available'}
                               </Typography>
                             </Box>
                             <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>

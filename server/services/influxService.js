@@ -248,10 +248,22 @@ class InfluxService {
     }
   }
 
-  // Get dashboard analytics data - optimized for large datasets with writer filtering
-  // Fixed: Hourly aggregation first, then timezone conversion, then daily aggregation
+  // Get dashboard analytics data - CORRECTED: Calculate proper daily increases
+  // Fixed: UTC→EST conversion, daily differences per video, sum all videos
   async getDashboardAnalytics(timeRange = '30d', writerId = null) {
     try {
+      console.log(`🔍 getDashboardAnalytics called with timeRange: ${timeRange}, writerId: ${writerId}`);
+
+      // Get writer name for filtering (InfluxDB uses writer_name, not writer_id)
+      let writerName = null;
+      if (writerId) {
+        // We need to get writer name from the database
+        // For now, use a mapping or get it from the calling function
+        // This will be passed from the analytics route
+        console.log(`🔍 Writer filtering by ID: ${writerId}`);
+      }
+
+      // Step 1: Get raw hourly data
       let query = `
         from(bucket: "${this.bucket}")
           |> range(start: -${timeRange})
@@ -259,43 +271,118 @@ class InfluxService {
           |> filter(fn: (r) => r._field == "views")
       `;
 
-      // Add writer filter if provided (handle both string and integer types)
+      // Add writer filter if provided
       if (writerId) {
         query += `|> filter(fn: (r) => r.writer_id == "${writerId}" or r.writer_id == ${writerId})`;
       }
 
       query += `
-          |> aggregateWindow(every: 1h, fn: sum, createEmpty: false)
-          |> aggregateWindow(every: 1d, fn: sum, createEmpty: false)
-          |> group()
           |> sort(columns: ["_time"], desc: false)
-          |> limit(n: 365)
       `;
 
-      console.log(`🔍 Dashboard analytics query (hourly→EST→daily):`, query);
+      console.log(`🔍 InfluxDB raw data query:\n${query}`);
 
-      const results = [];
+      const rawResults = [];
 
-      // Use Promise to ensure we wait for the query to complete
+      // Get raw data
       await new Promise((resolve, reject) => {
         this.queryApi.queryRows(query, {
           next(row, tableMeta) {
             const o = tableMeta.toObject(row);
-            results.push({
-              date: o._time,
-              views: o._value || 0
+            rawResults.push({
+              time: o._time,
+              views: parseInt(o._value || 0),
+              video_id: o.video_id || 'unknown',
+              writer_name: o.writer_name || 'unknown'
             });
           },
           error(error) {
-            console.error('Error getting dashboard analytics:', error);
+            console.error('❌ Error getting raw InfluxDB data:', error);
             reject(error);
           },
           complete() {
-            console.log('📊 Dashboard analytics retrieved:', results.length, 'records', writerId ? `for writer ${writerId}` : 'for all writers');
+            console.log(`📊 Raw InfluxDB data retrieved: ${rawResults.length} records`);
             resolve();
           }
         });
       });
+
+      // Step 2: Convert UTC to EST and group by EST date and video
+      const estData = rawResults.map(record => {
+        const utcTime = new Date(record.time);
+        const estTime = new Date(utcTime.getTime() - (5 * 60 * 60 * 1000)); // UTC-5 for EST
+        const estDate = estTime.toISOString().split('T')[0];
+
+        return {
+          ...record,
+          estDate: estDate,
+          estTime: estTime
+        };
+      });
+
+      // Step 3: Group by video and EST date, get last record of each day
+      const videosByDate = {};
+      estData.forEach(record => {
+        const key = `${record.video_id}_${record.estDate}`;
+        if (!videosByDate[key] || record.estTime > videosByDate[key].estTime) {
+          videosByDate[key] = record; // Keep the latest record for this video on this EST date
+        }
+      });
+
+      const dailyVideoRecords = Object.values(videosByDate);
+      console.log(`📊 Daily video records (last of each day): ${dailyVideoRecords.length}`);
+
+      // Step 4: Group by video and calculate daily differences
+      const videoGroups = dailyVideoRecords.reduce((groups, record) => {
+        if (!groups[record.video_id]) groups[record.video_id] = [];
+        groups[record.video_id].push(record);
+        return groups;
+      }, {});
+
+      // Step 5: Calculate daily increases per video
+      const dailyIncreases = [];
+      Object.entries(videoGroups).forEach(([videoId, records]) => {
+        // Sort by EST date
+        records.sort((a, b) => new Date(a.estDate) - new Date(b.estDate));
+
+        for (let i = 1; i < records.length; i++) {
+          const today = records[i];
+          const yesterday = records[i - 1];
+          const increase = today.views - yesterday.views;
+
+          if (increase > 0) { // Only positive increases
+            dailyIncreases.push({
+              date: today.estDate,
+              videoId: videoId,
+              increase: increase
+            });
+          }
+        }
+      });
+
+      console.log(`📈 Daily increases calculated: ${dailyIncreases.length} records`);
+
+      // Step 6: Aggregate by date
+      const dailyTotals = dailyIncreases.reduce((totals, record) => {
+        if (!totals[record.date]) {
+          totals[record.date] = {
+            date: record.date,
+            totalIncrease: 0
+          };
+        }
+        totals[record.date].totalIncrease += record.increase;
+        return totals;
+      }, {});
+
+      const results = Object.values(dailyTotals)
+        .map(day => ({
+          date: new Date(day.date),
+          views: day.totalIncrease
+        }))
+        .sort((a, b) => new Date(a.date) - new Date(b.date));
+
+      console.log(`📊 Final InfluxDB daily increases: ${results.length} days`);
+      console.log(`📊 Sample results:`, results.slice(0, 3).map(r => `${r.date.toISOString().split('T')[0]}: ${r.views.toLocaleString()}`));
 
       return results;
     } catch (error) {
@@ -304,63 +391,18 @@ class InfluxService {
     }
   }
 
-  // Get total views for a time period - FIXED: hourly → timezone conversion → sum
+  // Get total views for a time period - CORRECTED: Use daily increases sum
   async getTotalViews(timeRange = '30d', writerId = null) {
     try {
       console.log(`🔍 getTotalViews called with timeRange: ${timeRange}, writerId: ${writerId}`);
 
-      let query = `
-        from(bucket: "${this.bucket}")
-          |> range(start: -${timeRange})
-          |> filter(fn: (r) => r._measurement == "views")
-          |> filter(fn: (r) => r._field == "views")
-      `;
+      // Use the corrected getDashboardAnalytics to get daily increases
+      const dailyData = await this.getDashboardAnalytics(timeRange, writerId);
 
-      // Add writer filter if provided (handle both string and integer types)
-      if (writerId) {
-        query += `|> filter(fn: (r) => r.writer_id == "${writerId}" or r.writer_id == ${writerId})`;
-        console.log(`🔍 Added writer filter for ID: ${writerId}`);
-      } else {
-        console.log(`🔍 No writer filter applied - getting data for all writers`);
-      }
+      // Sum all daily increases
+      const totalViews = dailyData.reduce((sum, day) => sum + day.views, 0);
 
-      query += `
-          |> aggregateWindow(every: 1h, fn: sum, createEmpty: false)
-          |> group()
-          |> sum()
-          |> limit(n: 1)
-      `;
-
-      console.log(`🔍 Executing InfluxDB query:\n${query}`);
-
-      let totalViews = 0;
-      let rowCount = 0;
-
-      // Use Promise to ensure we wait for the query to complete
-      await new Promise((resolve, reject) => {
-        this.queryApi.queryRows(query, {
-          next(row, tableMeta) {
-            const o = tableMeta.toObject(row);
-            totalViews = o._value || 0;
-            rowCount++;
-            console.log(`🔍 Query result row ${rowCount}:`, {
-              value: o._value,
-              time: o._time,
-              measurement: o._measurement,
-              field: o._field,
-              writer_id: o.writer_id
-            });
-          },
-          error(error) {
-            console.error('❌ Error in getTotalViews query:', error);
-            reject(error);
-          },
-          complete() {
-            console.log(`📈 Total views query completed: ${totalViews} views from ${rowCount} rows`, writerId ? `for writer ${writerId}` : 'for all writers');
-            resolve();
-          }
-        });
-      });
+      console.log(`📈 Total views calculated from daily increases: ${totalViews.toLocaleString()} views from ${dailyData.length} days`);
 
       return totalViews;
     } catch (error) {

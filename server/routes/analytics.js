@@ -9,6 +9,91 @@ const router = express.Router();
 // Import PostgreSQL pool
 const pool = require('../config/database');
 
+// Simplified function to get account names from BigQuery (similar to getBigQueryAudienceRetention)
+async function getAccountNameFromBigQuery(videoId, writerId) {
+  try {
+    console.log(`📊 Getting account name for video ${videoId}, writer ${writerId}`);
+
+    // Use the global BigQuery client
+    const bigqueryClient = getBigQueryClient();
+    if (!bigqueryClient) {
+      throw new Error('BigQuery client not initialized');
+    }
+
+    // Extract YouTube video ID from PostgreSQL video ID
+    const videoQuery = `SELECT url FROM video WHERE id = $1`;
+    const { rows: videoRows } = await pool.query(videoQuery, [parseInt(videoId)]);
+
+    if (videoRows.length === 0) {
+      throw new Error(`Video with ID ${videoId} not found`);
+    }
+
+    const videoUrl = videoRows[0].url;
+    const youtubeVideoId = extractVideoId(videoUrl);
+
+    if (!youtubeVideoId) {
+      throw new Error(`Could not extract YouTube video ID from URL: ${videoUrl}`);
+    }
+
+    console.log(`🔍 Extracted YouTube video ID: ${youtubeVideoId} from URL: ${videoUrl}`);
+
+    // Get writer name from PostgreSQL
+    const writerQuery = `SELECT name FROM writer WHERE id = $1`;
+    const { rows: writerRows } = await pool.query(writerQuery, [parseInt(writerId)]);
+
+    if (writerRows.length === 0) {
+      throw new Error(`Writer with ID ${writerId} not found`);
+    }
+
+    const writerName = writerRows[0].name;
+    console.log(`👤 Found writer name: ${writerName}`);
+
+    const projectId = process.env.BIGQUERY_PROJECT_ID || "speedy-web-461014-g3";
+    const dataset = "dbt_youtube_analytics";
+
+    // Query BigQuery for account name using the same approach as individual videos
+    const accountQuery = `
+      SELECT DISTINCT
+        account_id,
+        video_id
+      FROM \`${projectId}.${dataset}.audience_retention_historical\`
+      WHERE video_id = @video_id
+        AND writer_id = @writer_id
+      LIMIT 1
+    `;
+
+    const [accountRows] = await bigqueryClient.query({
+      query: accountQuery,
+      params: {
+        video_id: youtubeVideoId,
+        writer_id: parseInt(writerId)
+      }
+    });
+
+    if (accountRows.length > 0) {
+      const accountId = accountRows[0].account_id;
+      console.log(`📊 Found account_id: ${accountId} for video ${youtubeVideoId}`);
+
+      // Get account name from PostgreSQL posting_accounts table
+      const accountNameQuery = `SELECT account_name FROM posting_accounts WHERE id = $1`;
+      const { rows: accountNameRows } = await pool.query(accountNameQuery, [accountId]);
+
+      if (accountNameRows.length > 0) {
+        const accountName = accountNameRows[0].account_name;
+        console.log(`✅ Found account name: ${accountName} for account_id: ${accountId}`);
+        return accountName;
+      }
+    }
+
+    console.log(`❌ No account name found for video ${videoId}`);
+    return null;
+
+  } catch (error) {
+    console.error('❌ Error getting account name from BigQuery:', error);
+    return null;
+  }
+}
+
 // Initialize InfluxDB service
 let influxService;
 try {
@@ -906,8 +991,9 @@ async function getBigQueryAnalyticsOverview(writerId, range = '30d', writerName 
       console.log(`📅 Default 30 days: ${startDateParam} to ${endDateParam} (30 days total)`);
     }
 
-    // Use our new dynamic data source strategy instead of old BigQuery table
-    console.log(`🔄 Using new dynamic data source strategy for analytics overview`);
+    // CORRECTED HYBRID DATA SOURCE STRATEGY WITH DEBUGGING
+    console.log(`🔄 Using CORRECTED hybrid data source strategy for analytics overview`);
+    console.log(`📊 ANALYTICS CHART DEBUG - Starting data collection for writer ${writerId} (${writerName})`);
 
     // Convert range to start/end dates for our new function
     let finalStartDate = startDateParam;
@@ -922,7 +1008,8 @@ async function getBigQueryAnalyticsOverview(writerId, range = '30d', writerName 
       finalEndDate = endDate.toISOString().split('T')[0];
     }
 
-    console.log(`📅 Implementing DYNAMIC DATA SOURCE STRATEGY for analytics overview`);
+    console.log(`📅 ANALYTICS CHART DEBUG - Date range: ${finalStartDate} to ${finalEndDate}`);
+    console.log(`📅 ANALYTICS CHART DEBUG - Range parameter: ${range}`);
 
     // Implement your exact data source strategy
     let viewsData = [];
@@ -962,119 +1049,76 @@ async function getBigQueryAnalyticsOverview(writerId, range = '30d', writerName 
       console.log('🔍 DEBUG: june5th:', june5th);
       console.log('🔍 DEBUG: startDateObj <= june5th:', startDateObj <= june5th);
 
-      // PART 1: Get InfluxDB data (until June 5th)
+      // PART 1: Get InfluxDB data (until June 5th) - CORRECTED APPROACH
       if (startDateObj <= june5th) {
         const historicalEndDate = endDateObj <= june5th ? finalEndDate : june5thStr;
-        console.log(`📊 Getting InfluxDB data: ${finalStartDate} to ${historicalEndDate}`);
+        console.log(`📊 ANALYTICS CHART DEBUG - PART 1: InfluxDB Historical Data`);
+        console.log(`📊 ANALYTICS CHART DEBUG - Getting CORRECTED InfluxDB data: ${finalStartDate} to ${historicalEndDate}`);
+        console.log(`📊 ANALYTICS CHART DEBUG - Start date obj: ${startDateObj.toISOString()}, June 5th: ${june5th.toISOString()}`);
 
         try {
-          const { InfluxDB } = require('@influxdata/influxdb-client');
-          const influxDB = new InfluxDB({
-            url: process.env.INFLUXDB_URL,
-            token: process.env.INFLUXDB_TOKEN,
-          });
-          const queryApi = influxDB.getQueryApi(process.env.INFLUXDB_ORG);
-
-          // Debug: Check if queryApi is properly initialized
-          console.log('🔍 InfluxDB queryApi initialized:', !!queryApi);
-          console.log('🔍 InfluxDB queryApi type:', typeof queryApi);
-          console.log('🔍 InfluxDB queryApi.queryRows type:', typeof queryApi?.queryRows);
+          // Use the corrected InfluxService
+          const InfluxService = require('../services/influxService');
+          const influxService = new InfluxService();
 
           const daysDiff = Math.ceil((new Date(historicalEndDate) - startDateObj) / (1000 * 60 * 60 * 24));
-          const timeRange = Math.max(daysDiff + 2, 30); // Reduced buffer and minimum range
+          const timeRange = Math.max(daysDiff + 5, 35); // Add buffer for calculations
 
-          const influxQuery = `
-            from(bucket: "youtube_api")
-              |> range(start: -${timeRange}d)
-              |> filter(fn: (r) => r._measurement == "views")
-              |> filter(fn: (r) => r._field == "views")
-              |> filter(fn: (r) => r.writer_name == "${writerName}")
-              |> aggregateWindow(every: 1h, fn: sum, createEmpty: false)
-              |> aggregateWindow(every: 1d, fn: sum, createEmpty: false)
-              |> yield(name: "daily_views")
-          `;
+          console.log(`📊 ANALYTICS CHART DEBUG - Using corrected InfluxDB service with timeRange: ${timeRange}d`);
+          console.log(`📊 ANALYTICS CHART DEBUG - Days difference: ${daysDiff}, calculated timeRange: ${timeRange}d`);
 
-          console.log(`🔍 InfluxDB query for writer_name="${writerName}", range=${timeRange}d`);
-          console.log(`🔍 Full query (UTC timezone):`, influxQuery);
+          // Get corrected daily increases using our fixed service
+          const influxResults = await influxService.getDashboardAnalytics(`${timeRange}d`, writerId);
 
-          const influxData = [];
-          let queryCompleted = false;
-          let queryError = null;
+          console.log(`📊 ANALYTICS CHART DEBUG - InfluxDB corrected results: ${influxResults.length} days`);
+          console.log(`📊 ANALYTICS CHART DEBUG - Raw InfluxDB date range: ${influxResults[0]?.date.toISOString().split('T')[0]} to ${influxResults[influxResults.length - 1]?.date.toISOString().split('T')[0]}`);
 
-          // Use Promise wrapper for InfluxDB query
-          console.log('🔍 About to call queryApi.queryRows...');
-          const queryPromise = new Promise((resolve, reject) => {
-            console.log('🔍 Inside Promise constructor, calling queryRows...');
-            const queryResult = queryApi.queryRows(influxQuery, {
-              next(row, tableMeta) {
-                const o = tableMeta.toObject(row);
-                influxData.push({
-                  date: new Date(o._time).toISOString().split('T')[0],
-                  views: parseInt(o._value || 0),
-                  writer_name: o.writer_name
-                });
-              },
-              error(error) {
-                console.error('❌ InfluxDB query error:', error);
-                queryError = error;
-                queryCompleted = true;
-                reject(error);
-              },
-              complete() {
-                console.log(`📊 InfluxDB query completed: ${influxData.length} rows`);
-                queryCompleted = true;
-                resolve();
-              },
-            });
-            console.log('🔍 queryRows call completed, result:', typeof queryResult);
-          });
-
-          // Wait for query with timeout (increased to 15 seconds)
-          const timeout = new Promise(resolve => setTimeout(() => {
-            console.log('⏰ InfluxDB query timeout after 15 seconds');
-            resolve();
-          }, 15000));
-
-          await Promise.race([
-            queryPromise,
-            timeout
-          ]);
-
-          if (queryError) {
-            throw queryError;
-          }
-
-          if (!queryCompleted) {
-            console.log('⚠️ InfluxDB query timed out, proceeding with partial data');
-            console.log(`📊 Partial InfluxDB data available: ${influxData.length} rows`);
-          }
-
-          historicalData = influxData
-            .filter(row => row.date >= finalStartDate && row.date <= historicalEndDate)
+          // Filter to requested date range and convert to expected format
+          historicalData = influxResults
+            .filter(row => {
+              const dateStr = row.date.toISOString().split('T')[0];
+              return dateStr >= finalStartDate && dateStr <= historicalEndDate;
+            })
             .map(row => ({
-              time: { value: row.date },
+              time: { value: row.date.toISOString().split('T')[0] },
               views: row.views
             }))
             .sort((a, b) => new Date(a.time.value) - new Date(b.time.value));
 
-          console.log(`📊 InfluxDB historical data: ${historicalData.length} rows`);
+          console.log(`📊 ANALYTICS CHART DEBUG - InfluxDB historical data (filtered): ${historicalData.length} rows`);
+          console.log(`📊 ANALYTICS CHART DEBUG - InfluxDB filtered date range: ${historicalData[0]?.time.value} to ${historicalData[historicalData.length - 1]?.time.value}`);
+
+          if (historicalData.length > 0) {
+            console.log(`📊 ANALYTICS CHART DEBUG - Sample InfluxDB data:`, historicalData.slice(0, 3).map(r => `${r.time.value}: ${r.views.toLocaleString()}`));
+            console.log(`📊 ANALYTICS CHART DEBUG - InfluxDB total views: ${historicalData.reduce((sum, r) => sum + r.views, 0).toLocaleString()}`);
+          } else {
+            console.log(`⚠️ ANALYTICS CHART DEBUG - No InfluxDB data after filtering!`);
+          }
 
         } catch (influxError) {
-          console.error('⚠️ InfluxDB error:', influxError.message);
+          console.error('❌ ANALYTICS CHART DEBUG - InfluxDB error:', influxError.message);
+          console.error('❌ ANALYTICS CHART DEBUG - InfluxDB stack:', influxError.stack);
           throw new Error(`InfluxDB failed: ${influxError.message}`);
         }
+      } else {
+        console.log(`📊 ANALYTICS CHART DEBUG - PART 1: Skipping InfluxDB (start date ${startDateObj.toISOString()} > June 5th ${june5th.toISOString()})`);
       }
 
-      // PART 2: Get BigQuery data (June 6th onwards) and convert to increases
+      // PART 2: Get BigQuery data (June 6th onwards) - CORRECTED TRANSITION
       const bigQueryStartDate = startDateObj > june6th ? finalStartDate : june6thStr;
       if (endDateObj >= june6th) {
-        console.log(`📊 Getting BigQuery data: ${bigQueryStartDate} to ${finalEndDate}`);
+        console.log(`📊 ANALYTICS CHART DEBUG - PART 2: BigQuery Current Data`);
+        console.log(`📊 ANALYTICS CHART DEBUG - Getting CORRECTED BigQuery data: ${bigQueryStartDate} to ${finalEndDate}`);
+        console.log(`📊 ANALYTICS CHART DEBUG - End date obj: ${endDateObj.toISOString()}, June 6th: ${june6th.toISOString()}`);
 
         try {
           const projectId = process.env.BIGQUERY_PROJECT_ID || "speedy-web-461014-g3";
           const analyticsDataset = process.env.BIGQUERY_ANALYTICS_DATASET || "dbt_youtube_analytics";
           const analyticsTable = process.env.BIGQUERY_ANALYTICS_TABLE || "youtube_metadata_historical";
 
+          console.log(`📊 ANALYTICS CHART DEBUG - BigQuery config: ${projectId}.${analyticsDataset}.${analyticsTable}`);
+
+          // Get BigQuery absolute counts
           const bigQueryQuery = `
             SELECT
               snapshot_date AS time,
@@ -1088,6 +1132,8 @@ async function getBigQueryAnalyticsOverview(writerId, range = '30d', writerName 
             ORDER BY snapshot_date ASC;
           `;
 
+          console.log(`📊 ANALYTICS CHART DEBUG - BigQuery query params: writer_id=${writerId}, start_date=${bigQueryStartDate}, end_date=${finalEndDate}`);
+
           const [bigQueryRows] = await bigquery.query({
             query: bigQueryQuery,
             params: {
@@ -1097,10 +1143,15 @@ async function getBigQueryAnalyticsOverview(writerId, range = '30d', writerName 
             }
           });
 
-          console.log(`📊 BigQuery returned ${bigQueryRows.length} rows`);
+          console.log(`📊 ANALYTICS CHART DEBUG - BigQuery returned ${bigQueryRows.length} rows`);
+          if (bigQueryRows.length > 0) {
+            console.log(`📊 ANALYTICS CHART DEBUG - BigQuery date range: ${bigQueryRows[0].time.value} to ${bigQueryRows[bigQueryRows.length - 1].time.value}`);
+            console.log(`📊 ANALYTICS CHART DEBUG - Sample BigQuery raw data:`, bigQueryRows.slice(0, 2).map(r => `${r.time.value}: ${parseInt(r.views).toLocaleString()}`));
+          } else {
+            console.log(`⚠️ ANALYTICS CHART DEBUG - No BigQuery data found for writer ${writerId} in date range ${bigQueryStartDate} to ${finalEndDate}`);
+          }
 
           if (bigQueryRows.length > 0) {
-            // Convert absolute counts to increases/deltas
             const absoluteData = bigQueryRows.map(row => ({
               date: row.time.value,
               absoluteViews: parseInt(row.views || 0)
@@ -1108,20 +1159,122 @@ async function getBigQueryAnalyticsOverview(writerId, range = '30d', writerName 
 
             console.log(`📊 BigQuery absolute data sample:`, absoluteData.slice(0, 2));
 
-            // Calculate increases between consecutive days
+            // CORRECTED: Handle June 6th transition properly with InfluxDB baseline
+            let june5thCumulative = 0;
+
+            console.log(`📊 ANALYTICS CHART DEBUG - TRANSITION CALCULATION SECTION`);
+            console.log(`📊 ANALYTICS CHART DEBUG - Historical data length: ${historicalData.length}`);
+            console.log(`📊 ANALYTICS CHART DEBUG - Absolute data length: ${absoluteData.length}`);
+            console.log(`📊 ANALYTICS CHART DEBUG - First absolute date: ${absoluteData[0]?.date}, June 6th string: ${june6thStr}`);
+
+            // Get June 5th cumulative total from InfluxDB if we have historical data
+            if (historicalData.length > 0 && absoluteData.length > 0 && absoluteData[0].date === june6thStr) {
+              try {
+                console.log(`📊 ANALYTICS CHART DEBUG - Getting June 5th cumulative total for transition calculation...`);
+
+                // Use InfluxDB service to get June 5th cumulative total
+                const InfluxService = require('../services/influxService');
+                const influxService = new InfluxService();
+
+                // Get raw data for June 5th to calculate cumulative total
+                const { InfluxDB } = require('@influxdata/influxdb-client');
+                const influxDB = new InfluxDB({
+                  url: process.env.INFLUXDB_URL,
+                  token: process.env.INFLUXDB_TOKEN,
+                });
+                const queryApi = influxDB.getQueryApi(process.env.INFLUXDB_ORG);
+
+                const june5thQuery = `
+                  from(bucket: "youtube_api")
+                    |> range(start: 2025-06-05T00:00:00Z, stop: 2025-06-06T00:00:00Z)
+                    |> filter(fn: (r) => r._measurement == "views")
+                    |> filter(fn: (r) => r._field == "views")
+                    |> filter(fn: (r) => r.writer_id == "${writerId}" or r.writer_id == ${writerId})
+                    |> group(columns: ["video_id"])
+                    |> last()
+                    |> group()
+                    |> sum()
+                `;
+
+                console.log(`📊 ANALYTICS CHART DEBUG - June 5th cumulative query: ${june5thQuery}`);
+
+                await new Promise((resolve, reject) => {
+                  queryApi.queryRows(june5thQuery, {
+                    next(row, tableMeta) {
+                      const o = tableMeta.toObject(row);
+                      june5thCumulative = parseInt(o._value || 0);
+                      console.log(`📊 ANALYTICS CHART DEBUG - June 5th cumulative total: ${june5thCumulative.toLocaleString()}`);
+                    },
+                    error(error) {
+                      console.error('❌ ANALYTICS CHART DEBUG - June 5th cumulative query error:', error);
+                      reject(error);
+                    },
+                    complete() {
+                      console.log(`✅ ANALYTICS CHART DEBUG - June 5th cumulative query completed: ${june5thCumulative.toLocaleString()}`);
+                      resolve();
+                    }
+                  });
+                });
+
+              } catch (june5thError) {
+                console.error('⚠️ ANALYTICS CHART DEBUG - Error getting June 5th cumulative:', june5thError.message);
+                june5thCumulative = 0; // Fallback to 0
+              }
+            } else {
+              console.log(`📊 ANALYTICS CHART DEBUG - Skipping June 5th cumulative calculation (not needed for transition)`);
+            }
+
+            // Now calculate BigQuery daily increases with proper transition
             for (let i = 0; i < absoluteData.length; i++) {
               const currentDay = absoluteData[i];
               let dailyIncrease = 0;
 
-              if (i === 0) {
-                // For June 6th, use absolute count as baseline increase
+              if (i === 0 && currentDay.date === june6thStr && june5thCumulative > 0) {
+                // CORRECTED: June 6th transition = BigQuery June 6th - InfluxDB June 5th
+                dailyIncrease = currentDay.absoluteViews - june5thCumulative;
+                console.log(`📈 ANALYTICS CHART DEBUG - ${currentDay.date} (TRANSITION): ${currentDay.absoluteViews.toLocaleString()} - ${june5thCumulative.toLocaleString()} = ${dailyIncrease.toLocaleString()} increase`);
+
+                // FALLBACK: If transition gives 0 or negative, use InfluxDB for June 6th
+                if (dailyIncrease <= 0) {
+                  console.log(`⚠️ ANALYTICS CHART DEBUG - ${currentDay.date} transition failed (${dailyIncrease.toLocaleString()}), falling back to InfluxDB`);
+
+                  try {
+                    // Get June 6th from InfluxDB as fallback
+                    const InfluxService = require('../services/influxService');
+                    const influxService = new InfluxService();
+                    console.log(`📊 ANALYTICS CHART DEBUG - Getting InfluxDB fallback data for ${currentDay.date}`);
+
+                    const influxFallback = await influxService.getDashboardAnalytics('5d', writerId);
+                    console.log(`📊 ANALYTICS CHART DEBUG - InfluxDB fallback returned ${influxFallback.length} days`);
+
+                    const june6thInflux = influxFallback.find(day =>
+                      day.date.toISOString().split('T')[0] === june6thStr
+                    );
+
+                    if (june6thInflux) {
+                      dailyIncrease = june6thInflux.views;
+                      console.log(`✅ ANALYTICS CHART DEBUG - ${currentDay.date} using InfluxDB fallback: ${dailyIncrease.toLocaleString()} views`);
+                    } else {
+                      console.log(`❌ ANALYTICS CHART DEBUG - ${currentDay.date} no InfluxDB fallback data found`);
+                      console.log(`📊 ANALYTICS CHART DEBUG - Available InfluxDB dates:`, influxFallback.map(d => d.date.toISOString().split('T')[0]));
+                      dailyIncrease = 0;
+                    }
+                  } catch (fallbackError) {
+                    console.error(`❌ ANALYTICS CHART DEBUG - ${currentDay.date} InfluxDB fallback failed:`, fallbackError.message);
+                    dailyIncrease = 0;
+                  }
+                } else {
+                  console.log(`✅ ANALYTICS CHART DEBUG - ${currentDay.date} transition successful: ${dailyIncrease.toLocaleString()} views`);
+                }
+              } else if (i === 0) {
+                // First day but not June 6th or no June 5th data - use absolute as baseline
                 dailyIncrease = currentDay.absoluteViews;
-                console.log(`📈 ${currentDay.date} baseline: ${dailyIncrease} views`);
+                console.log(`📈 ${currentDay.date} (first day): ${dailyIncrease.toLocaleString()} views`);
               } else {
-                // For subsequent days, calculate increase from previous day
+                // CORRECTED: Calculate proper daily differences
                 const previousDay = absoluteData[i - 1];
                 dailyIncrease = currentDay.absoluteViews - previousDay.absoluteViews;
-                console.log(`📈 ${currentDay.date}: ${currentDay.absoluteViews} - ${previousDay.absoluteViews} = ${dailyIncrease} increase`);
+                console.log(`📈 ${currentDay.date}: ${currentDay.absoluteViews.toLocaleString()} - ${previousDay.absoluteViews.toLocaleString()} = ${dailyIncrease.toLocaleString()} increase`);
               }
 
               bigQueryData.push({
@@ -1130,7 +1283,7 @@ async function getBigQueryAnalyticsOverview(writerId, range = '30d', writerName 
               });
             }
 
-            console.log(`📊 BigQuery increase data: ${bigQueryData.length} rows`);
+            console.log(`📊 BigQuery corrected increase data: ${bigQueryData.length} rows`);
           }
 
         } catch (bigQueryError) {
@@ -1139,7 +1292,7 @@ async function getBigQueryAnalyticsOverview(writerId, range = '30d', writerName 
         }
       }
 
-      // PART 3: Get live InfluxDB data for missing BigQuery dates
+      // PART 3: Get live InfluxDB data for missing BigQuery dates - CORRECTED
       if (endDateObj > june6th && todayStr > june6thStr) {
         const bigQueryDates = new Set(bigQueryData.map(row => row.time.value));
         const june7th = new Date(june6th.getTime() + 24*60*60*1000);
@@ -1164,73 +1317,52 @@ async function getBigQueryAnalyticsOverview(writerId, range = '30d', writerName 
 
         if (missingDates.length > 0) {
           try {
-            const { InfluxDB } = require('@influxdata/influxdb-client');
-            const influxDB = new InfluxDB({
-              url: process.env.INFLUXDB_URL,
-              token: process.env.INFLUXDB_TOKEN,
-            });
-            const queryApi = influxDB.getQueryApi(process.env.INFLUXDB_ORG);
+            // Use the corrected InfluxService for fallback data
+            const InfluxService = require('../services/influxService');
+            const influxService = new InfluxService();
 
             const daysDiff = Math.ceil((endDateObj - new Date(liveStartDate)) / (1000 * 60 * 60 * 24));
-            const timeRange = Math.max(daysDiff + 2, 1);
+            const timeRange = Math.max(daysDiff + 5, 10);
 
-            const liveInfluxQuery = `
-              from(bucket: "youtube_api")
-                |> range(start: -${timeRange}d)
-                |> filter(fn: (r) => r._measurement == "views")
-                |> filter(fn: (r) => r._field == "views")
-                |> filter(fn: (r) => r.writer_name == "${writerName}")
-                |> aggregateWindow(every: 1h, fn: sum, createEmpty: false)
-                |> aggregateWindow(every: 1d, fn: sum, createEmpty: false)
-                |> yield(name: "daily_views")
-            `;
+            console.log(`📊 Using corrected InfluxDB service for fallback with timeRange: ${timeRange}d`);
 
-            const liveInfluxData = [];
-            await new Promise((resolve, reject) => {
-              queryApi.queryRows(liveInfluxQuery, {
-                next(row, tableMeta) {
-                  const o = tableMeta.toObject(row);
-                  liveInfluxData.push({
-                    date: new Date(o._time).toISOString().split('T')[0],
-                    views: parseInt(o._value || 0)
-                  });
-                },
-                error(error) {
-                  console.error('❌ InfluxDB live query error:', error);
-                  reject(error);
-                },
-                complete() {
-                  console.log(`📊 InfluxDB live returned ${liveInfluxData.length} rows`);
-                  resolve();
-                },
-              });
-            });
+            // Get corrected daily increases for fallback
+            const fallbackResults = await influxService.getDashboardAnalytics(`${timeRange}d`, writerId);
 
-            liveData = liveInfluxData
-              .filter(row => missingDates.includes(row.date))
+            liveData = fallbackResults
+              .filter(row => {
+                const dateStr = row.date.toISOString().split('T')[0];
+                return missingDates.includes(dateStr);
+              })
               .map(row => ({
-                time: { value: row.date },
+                time: { value: row.date.toISOString().split('T')[0] },
                 views: row.views
               }))
               .sort((a, b) => new Date(a.time.value) - new Date(b.time.value));
 
-            console.log(`📊 InfluxDB live data: ${liveData.length} rows for missing dates`);
+            console.log(`📊 InfluxDB corrected fallback data: ${liveData.length} rows for missing dates`);
 
           } catch (liveError) {
-            console.error('⚠️ InfluxDB live error:', liveError.message);
-            throw new Error(`InfluxDB live failed: ${liveError.message}`);
+            console.error('⚠️ InfluxDB fallback error:', liveError.message);
+            throw new Error(`InfluxDB fallback failed: ${liveError.message}`);
           }
         }
       }
 
       // PART 4: Combine all data sources
+      console.log(`📊 ANALYTICS CHART DEBUG - PART 4: Combining Data Sources`);
+      console.log(`📊 ANALYTICS CHART DEBUG - Data to combine: ${historicalData.length} InfluxDB + ${bigQueryData.length} BigQuery + ${liveData.length} live`);
+
       const combinedData = [...historicalData, ...bigQueryData, ...liveData];
+      console.log(`📊 ANALYTICS CHART DEBUG - Combined data before deduplication: ${combinedData.length} records`);
 
       const dataMap = new Map();
       combinedData.forEach(row => {
         const dateKey = row.time.value;
         if (!dataMap.has(dateKey)) {
           dataMap.set(dateKey, row);
+        } else {
+          console.log(`📊 ANALYTICS CHART DEBUG - Duplicate date found: ${dateKey}, keeping first occurrence`);
         }
       });
 
@@ -1238,14 +1370,28 @@ async function getBigQueryAnalyticsOverview(writerId, range = '30d', writerName 
         new Date(a.time.value) - new Date(b.time.value)
       );
 
-      console.log(`📊 FINAL COMBINED DATA: ${historicalData.length} InfluxDB + ${bigQueryData.length} BigQuery + ${liveData.length} live = ${viewsData.length} total`);
+      console.log(`📊 ANALYTICS CHART DEBUG - FINAL COMBINED DATA: ${historicalData.length} InfluxDB + ${bigQueryData.length} BigQuery + ${liveData.length} live = ${viewsData.length} total`);
 
       if (viewsData.length > 0) {
-        console.log(`📊 Date range: ${viewsData[0].time.value} to ${viewsData[viewsData.length - 1].time.value}`);
-        console.log(`📊 Sample final data:`, viewsData.slice(0, 3).map(row => ({
+        console.log(`📊 ANALYTICS CHART DEBUG - Final date range: ${viewsData[0].time.value} to ${viewsData[viewsData.length - 1].time.value}`);
+        console.log(`📊 ANALYTICS CHART DEBUG - Sample final data:`, viewsData.slice(0, 5).map(row => ({
           date: row.time.value,
-          dailyIncrease: row.views
+          dailyIncrease: row.views.toLocaleString()
         })));
+
+        // Check for June 6th specifically
+        const june6thData = viewsData.find(row => row.time.value === '2025-06-06');
+        if (june6thData) {
+          console.log(`📊 ANALYTICS CHART DEBUG - June 6th final result: ${june6thData.views.toLocaleString()} views`);
+        } else {
+          console.log(`⚠️ ANALYTICS CHART DEBUG - June 6th not found in final data`);
+        }
+
+        // Calculate total views
+        const totalViews = viewsData.reduce((sum, row) => sum + row.views, 0);
+        console.log(`📊 ANALYTICS CHART DEBUG - Total views across all days: ${totalViews.toLocaleString()}`);
+      } else {
+        console.log(`❌ ANALYTICS CHART DEBUG - No final data after combination!`);
       }
 
     } catch (dynamicError) {
@@ -1254,6 +1400,8 @@ async function getBigQueryAnalyticsOverview(writerId, range = '30d', writerName 
     }
 
     // Transform the data to match the expected format for the rest of the function
+    console.log(`📊 ANALYTICS CHART DEBUG - PART 5: Data Transformation`);
+
     let rows = viewsData.map(item => ({
       date: { value: item.time.value },
       total_views: item.views
@@ -1261,8 +1409,19 @@ async function getBigQueryAnalyticsOverview(writerId, range = '30d', writerName 
 
     // No fallbacks - as per requirements
 
-    console.log(`📊 Transformed data for overview: ${rows.length} records`);
-    console.log(`📊 Sample transformed data:`, rows.slice(0, 3));
+    console.log(`📊 ANALYTICS CHART DEBUG - Transformed data for overview: ${rows.length} records`);
+    console.log(`📊 ANALYTICS CHART DEBUG - Sample transformed data:`, rows.slice(0, 3).map(r => ({
+      date: r.date.value,
+      total_views: r.total_views.toLocaleString()
+    })));
+
+    // Check June 6th in transformed data
+    const june6thTransformed = rows.find(r => r.date.value === '2025-06-06');
+    if (june6thTransformed) {
+      console.log(`📊 ANALYTICS CHART DEBUG - June 6th in transformed data: ${june6thTransformed.total_views.toLocaleString()} views`);
+    } else {
+      console.log(`⚠️ ANALYTICS CHART DEBUG - June 6th missing from transformed data`);
+    }
 
     // Debug: If no data, check if writer exists at all
     if (rows.length === 0) {
@@ -1312,12 +1471,26 @@ async function getBigQueryAnalyticsOverview(writerId, range = '30d', writerName 
       .sort((a, b) => a.timestamp - b.timestamp); // Sort chronologically for chart
 
     // Transform chart data for frontend compatibility
+    console.log(`📊 ANALYTICS CHART DEBUG - PART 6: Chart Data Creation`);
+
     const aggregatedViewsData = chartData.map(item => ({
       time: item.date,
       views: item.views
     }));
 
-    console.log(`📊 Processed dynamic data source analytics:`, {
+    console.log(`📊 ANALYTICS CHART DEBUG - Chart data transformation complete:`);
+    console.log(`📊 ANALYTICS CHART DEBUG - Chart data points: ${chartData.length}`);
+    console.log(`📊 ANALYTICS CHART DEBUG - Aggregated views data points: ${aggregatedViewsData.length}`);
+
+    // Check June 6th in chart data
+    const june6thChart = aggregatedViewsData.find(item => item.time === '2025-06-06');
+    if (june6thChart) {
+      console.log(`📊 ANALYTICS CHART DEBUG - June 6th in chart data: ${june6thChart.views.toLocaleString()} views`);
+    } else {
+      console.log(`⚠️ ANALYTICS CHART DEBUG - June 6th missing from chart data`);
+    }
+
+    console.log(`📊 ANALYTICS CHART DEBUG - Final analytics summary:`, {
       totalViews: totalViews.toLocaleString(),
       totalDays,
       avgDailyViews: avgDailyViews.toLocaleString(),
@@ -1326,7 +1499,10 @@ async function getBigQueryAnalyticsOverview(writerId, range = '30d', writerName 
       dateRange: range,
       firstDate: chartData[0]?.date,
       lastDate: chartData[chartData.length - 1]?.date,
-      sampleAggregatedData: aggregatedViewsData.slice(0, 2)
+      sampleAggregatedData: aggregatedViewsData.slice(0, 3).map(item => ({
+        time: item.time,
+        views: item.views.toLocaleString()
+      }))
     });
 
     return {
@@ -1423,6 +1599,539 @@ router.get('/test-writer-110', async (req, res) => {
   } catch (error) {
     console.error('❌ Direct test error:', error);
     res.status(500).json({ message: 'Direct test error', error: error.message, stack: error.stack });
+  }
+});
+
+// Debug endpoint to check raw InfluxDB data
+router.get('/debug-influx-raw', async (req, res) => {
+  try {
+    console.log('🔍 DEBUG: Checking raw InfluxDB data');
+
+    const writerId = 110;
+    const range = '7d'; // Use shorter range for debugging
+
+    // Get writer name
+    const writerQuery = `SELECT name FROM writer WHERE id = $1`;
+    const { rows: writerRows } = await pool.query(writerQuery, [writerId]);
+    const writerName = writerRows[0]?.name || 'Unknown Writer';
+
+    console.log(`🔍 DEBUG: Writer: ${writerName} (ID: ${writerId})`);
+
+    // Check if InfluxDB service is available
+    const InfluxService = require('../services/influxService');
+    const influxService = new InfluxService();
+
+    if (!influxService) {
+      return res.json({ error: 'InfluxDB service not available' });
+    }
+
+    console.log(`🔍 DEBUG: Getting InfluxDB data for range: ${range}`);
+
+    // Get both total views and daily analytics
+    const [totalViews, dailyAnalytics] = await Promise.all([
+      influxService.getTotalViews(range, writerId),
+      influxService.getDashboardAnalytics(range, writerId)
+    ]);
+
+    console.log(`🔍 DEBUG: InfluxDB total views: ${totalViews}`);
+    console.log(`🔍 DEBUG: InfluxDB daily analytics: ${dailyAnalytics.length} records`);
+
+    // Transform daily analytics for debugging
+    const transformedDaily = dailyAnalytics.map(day => ({
+      date: new Date(day.date).toISOString().split('T')[0],
+      views: day.views,
+      rawDate: day.date
+    }));
+
+    console.log(`🔍 DEBUG: Sample daily data:`, transformedDaily.slice(0, 3));
+
+    // Calculate total from daily data
+    const calculatedTotal = transformedDaily.reduce((sum, day) => sum + day.views, 0);
+
+    res.json({
+      success: true,
+      writer: { id: writerId, name: writerName },
+      range: range,
+      influxTotalViews: totalViews,
+      dailyAnalyticsCount: dailyAnalytics.length,
+      dailyAnalytics: transformedDaily,
+      calculatedTotalFromDaily: calculatedTotal,
+      discrepancy: Math.abs(totalViews - calculatedTotal),
+      sampleRawDaily: dailyAnalytics.slice(0, 3)
+    });
+
+  } catch (error) {
+    console.error('🔍 DEBUG: Error in InfluxDB debug endpoint:', error);
+    res.status(500).json({
+      error: 'InfluxDB debug endpoint error',
+      message: error.message,
+      stack: error.stack
+    });
+  }
+});
+
+// Debug endpoint to check raw BigQuery data
+router.get('/debug-bigquery-raw', async (req, res) => {
+  try {
+    console.log('🔍 DEBUG: Checking raw BigQuery data');
+
+    const writerId = 110;
+    const range = '7d'; // Use shorter range for debugging
+
+    // Get writer name
+    const writerQuery = `SELECT name FROM writer WHERE id = $1`;
+    const { rows: writerRows } = await pool.query(writerQuery, [writerId]);
+    const writerName = writerRows[0]?.name || 'Unknown Writer';
+
+    console.log(`🔍 DEBUG: Writer: ${writerName} (ID: ${writerId})`);
+
+    if (!bigquery) {
+      return res.json({ error: 'BigQuery client not initialized' });
+    }
+
+    // Calculate date range
+    const today = new Date();
+    const endDate = today.toISOString().split('T')[0];
+    const startDate = new Date(today);
+    startDate.setDate(today.getDate() - 7);
+    const startDateStr = startDate.toISOString().split('T')[0];
+
+    console.log(`🔍 DEBUG: Date range: ${startDateStr} to ${endDate}`);
+
+    // Raw BigQuery query
+    const projectId = process.env.BIGQUERY_PROJECT_ID || "speedy-web-461014-g3";
+    const analyticsDataset = process.env.BIGQUERY_ANALYTICS_DATASET || "dbt_youtube_analytics";
+    const analyticsTable = process.env.BIGQUERY_ANALYTICS_TABLE || "youtube_metadata_historical";
+
+    const bigQueryQuery = `
+      SELECT
+        snapshot_date AS time,
+        SUM(CAST(statistics_view_count AS INT64)) AS views
+      FROM \`${projectId}.${analyticsDataset}.${analyticsTable}\`
+      WHERE writer_id = @writer_id
+        AND snapshot_date BETWEEN @start_date AND @end_date
+        AND writer_id IS NOT NULL
+        AND statistics_view_count IS NOT NULL
+      GROUP BY snapshot_date
+      ORDER BY snapshot_date ASC;
+    `;
+
+    console.log(`🔍 DEBUG: Executing BigQuery query:`, bigQueryQuery);
+    console.log(`🔍 DEBUG: Query params:`, { writer_id: writerId, start_date: startDateStr, end_date: endDate });
+
+    const [bigQueryRows] = await bigquery.query({
+      query: bigQueryQuery,
+      params: {
+        writer_id: parseInt(writerId),
+        start_date: startDateStr,
+        end_date: endDate
+      }
+    });
+
+    console.log(`🔍 DEBUG: BigQuery returned ${bigQueryRows.length} rows`);
+
+    // Show raw data
+    const rawData = bigQueryRows.map(row => ({
+      date: row.time.value,
+      absoluteViews: parseInt(row.views || 0)
+    }));
+
+    console.log(`🔍 DEBUG: Raw BigQuery data:`, rawData);
+
+    // Calculate daily increases
+    const dailyIncreases = [];
+    for (let i = 0; i < rawData.length; i++) {
+      const currentDay = rawData[i];
+      let dailyIncrease = 0;
+
+      if (i === 0) {
+        // First day - use absolute count as baseline
+        dailyIncrease = currentDay.absoluteViews;
+        console.log(`🔍 DEBUG: ${currentDay.date} baseline: ${dailyIncrease} views`);
+      } else {
+        // Subsequent days - calculate increase
+        const previousDay = rawData[i - 1];
+        dailyIncrease = currentDay.absoluteViews - previousDay.absoluteViews;
+        console.log(`🔍 DEBUG: ${currentDay.date}: ${currentDay.absoluteViews} - ${previousDay.absoluteViews} = ${dailyIncrease} increase`);
+      }
+
+      dailyIncreases.push({
+        date: currentDay.date,
+        absoluteViews: currentDay.absoluteViews,
+        dailyIncrease: Math.max(0, dailyIncrease)
+      });
+    }
+
+    const totalViews = dailyIncreases.reduce((sum, day) => sum + day.dailyIncrease, 0);
+
+    console.log(`🔍 DEBUG: Total views calculated: ${totalViews.toLocaleString()}`);
+
+    res.json({
+      success: true,
+      writer: { id: writerId, name: writerName },
+      dateRange: { start: startDateStr, end: endDate },
+      rawBigQueryRows: bigQueryRows.length,
+      rawData: rawData,
+      dailyIncreases: dailyIncreases,
+      totalViews: totalViews,
+      avgDailyViews: dailyIncreases.length > 0 ? Math.round(totalViews / dailyIncreases.length) : 0
+    });
+
+  } catch (error) {
+    console.error('🔍 DEBUG: Error in debug endpoint:', error);
+    res.status(500).json({
+      error: 'Debug endpoint error',
+      message: error.message,
+      stack: error.stack
+    });
+  }
+});
+
+// Debug endpoint to compare all data sources
+router.get('/debug-data-comparison', async (req, res) => {
+  try {
+    console.log('🔍 DEBUG: Comparing all data sources');
+
+    const writerId = 110;
+    const range = '7d';
+
+    // Get writer name
+    const writerQuery = `SELECT name FROM writer WHERE id = $1`;
+    const { rows: writerRows } = await pool.query(writerQuery, [writerId]);
+    const writerName = writerRows[0]?.name || 'Unknown Writer';
+
+    console.log(`🔍 DEBUG: Comparing data for writer: ${writerName} (ID: ${writerId})`);
+
+    const results = {
+      writer: { id: writerId, name: writerName },
+      range: range,
+      influxData: null,
+      bigQueryData: null,
+      combinedData: null,
+      errors: []
+    };
+
+    // 1. Test InfluxDB
+    try {
+      const InfluxService = require('../services/influxService');
+      const influxService = new InfluxService();
+
+      const [influxTotal, influxDaily] = await Promise.all([
+        influxService.getTotalViews(range, writerId),
+        influxService.getDashboardAnalytics(range, writerId)
+      ]);
+
+      const influxTransformed = influxDaily.map(day => ({
+        date: new Date(day.date).toISOString().split('T')[0],
+        views: day.views
+      }));
+
+      results.influxData = {
+        totalViews: influxTotal,
+        dailyCount: influxDaily.length,
+        dailyData: influxTransformed,
+        calculatedTotal: influxTransformed.reduce((sum, day) => sum + day.views, 0)
+      };
+
+      console.log(`🔍 DEBUG: InfluxDB - Total: ${influxTotal}, Daily records: ${influxDaily.length}`);
+
+    } catch (influxError) {
+      console.error('🔍 DEBUG: InfluxDB error:', influxError);
+      results.errors.push(`InfluxDB: ${influxError.message}`);
+    }
+
+    // 2. Test BigQuery
+    try {
+      if (bigquery) {
+        const today = new Date();
+        const endDate = today.toISOString().split('T')[0];
+        const startDate = new Date(today);
+        startDate.setDate(today.getDate() - 7);
+        const startDateStr = startDate.toISOString().split('T')[0];
+
+        const projectId = process.env.BIGQUERY_PROJECT_ID || "speedy-web-461014-g3";
+        const analyticsDataset = process.env.BIGQUERY_ANALYTICS_DATASET || "dbt_youtube_analytics";
+        const analyticsTable = process.env.BIGQUERY_ANALYTICS_TABLE || "youtube_metadata_historical";
+
+        const bigQueryQuery = `
+          SELECT
+            snapshot_date AS time,
+            SUM(CAST(statistics_view_count AS INT64)) AS views
+          FROM \`${projectId}.${analyticsDataset}.${analyticsTable}\`
+          WHERE writer_id = @writer_id
+            AND snapshot_date BETWEEN @start_date AND @end_date
+            AND writer_id IS NOT NULL
+            AND statistics_view_count IS NOT NULL
+          GROUP BY snapshot_date
+          ORDER BY snapshot_date ASC;
+        `;
+
+        const [bigQueryRows] = await bigquery.query({
+          query: bigQueryQuery,
+          params: {
+            writer_id: parseInt(writerId),
+            start_date: startDateStr,
+            end_date: endDate
+          }
+        });
+
+        const bigQueryRaw = bigQueryRows.map(row => ({
+          date: row.time.value,
+          absoluteViews: parseInt(row.views || 0)
+        }));
+
+        // Calculate daily increases
+        const bigQueryIncreases = [];
+        for (let i = 0; i < bigQueryRaw.length; i++) {
+          const currentDay = bigQueryRaw[i];
+          let dailyIncrease = 0;
+
+          if (i === 0) {
+            dailyIncrease = currentDay.absoluteViews; // This is the problem!
+          } else {
+            const previousDay = bigQueryRaw[i - 1];
+            dailyIncrease = currentDay.absoluteViews - previousDay.absoluteViews;
+          }
+
+          bigQueryIncreases.push({
+            date: currentDay.date,
+            absoluteViews: currentDay.absoluteViews,
+            dailyIncrease: Math.max(0, dailyIncrease)
+          });
+        }
+
+        results.bigQueryData = {
+          rawCount: bigQueryRows.length,
+          rawData: bigQueryRaw,
+          increasesData: bigQueryIncreases,
+          totalFromIncreases: bigQueryIncreases.reduce((sum, day) => sum + day.dailyIncrease, 0),
+          firstDayProblem: bigQueryIncreases.length > 0 ? bigQueryIncreases[0].dailyIncrease : 0
+        };
+
+        console.log(`🔍 DEBUG: BigQuery - Raw records: ${bigQueryRows.length}, First day increase: ${results.bigQueryData.firstDayProblem}`);
+
+      } else {
+        results.errors.push('BigQuery: Client not initialized');
+      }
+
+    } catch (bigQueryError) {
+      console.error('🔍 DEBUG: BigQuery error:', bigQueryError);
+      results.errors.push(`BigQuery: ${bigQueryError.message}`);
+    }
+
+    // 3. Test combined analytics function
+    try {
+      const analyticsData = await getBigQueryAnalyticsOverview(writerId, range, writerName);
+
+      results.combinedData = {
+        totalViews: analyticsData.totalViews,
+        chartDataCount: analyticsData.chartData?.length || 0,
+        aggregatedDataCount: analyticsData.aggregatedViewsData?.length || 0,
+        sampleChartData: analyticsData.chartData?.slice(0, 3) || [],
+        sampleAggregatedData: analyticsData.aggregatedViewsData?.slice(0, 3) || []
+      };
+
+      console.log(`🔍 DEBUG: Combined function - Total: ${analyticsData.totalViews}, Chart points: ${analyticsData.chartData?.length}`);
+
+    } catch (combinedError) {
+      console.error('🔍 DEBUG: Combined function error:', combinedError);
+      results.errors.push(`Combined: ${combinedError.message}`);
+    }
+
+    res.json(results);
+
+  } catch (error) {
+    console.error('🔍 DEBUG: Error in data comparison endpoint:', error);
+    res.status(500).json({
+      error: 'Data comparison endpoint error',
+      message: error.message,
+      stack: error.stack
+    });
+  }
+});
+
+// Quick data analysis endpoint for past 30 days including June 5th
+router.get('/debug-30days-june5', async (req, res) => {
+  try {
+    console.log('🔍 DEBUG: Analyzing 30 days including June 5th');
+
+    const writerId = 110;
+    const endDate = '2025-06-05'; // June 5th
+    const startDate = '2025-05-06'; // 30 days before
+
+    // Get writer info
+    const writerQuery = `SELECT id, name, login_id FROM writer WHERE id = $1`;
+    const { rows: writerRows } = await pool.query(writerQuery, [writerId]);
+
+    if (writerRows.length === 0) {
+      return res.json({ error: `Writer ${writerId} not found` });
+    }
+
+    const writer = writerRows[0];
+    console.log(`📝 Analyzing writer: ${writer.name} (ID: ${writer.id})`);
+    console.log(`📅 Date range: ${startDate} to ${endDate}`);
+
+    const results = {
+      writer: writer,
+      dateRange: { start: startDate, end: endDate },
+      influxData: null,
+      bigQueryData: null,
+      errors: []
+    };
+
+    // 1. InfluxDB Data
+    try {
+      const InfluxService = require('../services/influxService');
+      const influxService = new InfluxService();
+
+      // Calculate time range for InfluxDB
+      const daysDiff = Math.ceil((new Date(endDate) - new Date(startDate)) / (1000 * 60 * 60 * 24));
+      const timeRange = `${daysDiff + 5}d`;
+
+      console.log(`🔍 InfluxDB time range: ${timeRange}`);
+
+      const [influxTotal, influxDaily] = await Promise.all([
+        influxService.getTotalViews(timeRange, writerId),
+        influxService.getDashboardAnalytics(timeRange, writerId)
+      ]);
+
+      // Filter to exact date range and transform
+      const filteredDaily = influxDaily
+        .map(day => ({
+          date: new Date(day.date).toISOString().split('T')[0],
+          views: day.views,
+          rawDate: day.date
+        }))
+        .filter(day => day.date >= startDate && day.date <= endDate)
+        .sort((a, b) => new Date(a.date) - new Date(b.date));
+
+      const calculatedTotal = filteredDaily.reduce((sum, day) => sum + day.views, 0);
+
+      results.influxData = {
+        totalViews: influxTotal,
+        dailyRecords: filteredDaily.length,
+        dailyData: filteredDaily.slice(0, 10), // First 10 days for display
+        calculatedTotal: calculatedTotal,
+        avgDaily: filteredDaily.length > 0 ? Math.round(calculatedTotal / filteredDaily.length) : 0,
+        firstDay: filteredDaily[0] || null,
+        lastDay: filteredDaily[filteredDaily.length - 1] || null
+      };
+
+      console.log(`📊 InfluxDB: ${influxTotal.toLocaleString()} total, ${filteredDaily.length} daily records`);
+
+    } catch (influxError) {
+      console.error('❌ InfluxDB error:', influxError);
+      results.errors.push(`InfluxDB: ${influxError.message}`);
+    }
+
+    // 2. BigQuery Data
+    try {
+      if (bigquery) {
+        const projectId = process.env.BIGQUERY_PROJECT_ID || "speedy-web-461014-g3";
+        const dataset = "dbt_youtube_analytics";
+        const table = "youtube_metadata_historical";
+
+        const bigQueryQuery = `
+          SELECT
+            snapshot_date AS time,
+            SUM(CAST(statistics_view_count AS INT64)) AS views
+          FROM \`${projectId}.${dataset}.${table}\`
+          WHERE writer_id = @writer_id
+            AND snapshot_date BETWEEN @start_date AND @end_date
+            AND writer_id IS NOT NULL
+            AND statistics_view_count IS NOT NULL
+          GROUP BY snapshot_date
+          ORDER BY snapshot_date ASC;
+        `;
+
+        console.log(`🔍 BigQuery query for writer ${writerId}, ${startDate} to ${endDate}`);
+
+        const [bigQueryRows] = await bigquery.query({
+          query: bigQueryQuery,
+          params: {
+            writer_id: parseInt(writerId),
+            start_date: startDate,
+            end_date: endDate
+          }
+        });
+
+        const bigQueryRaw = bigQueryRows.map(row => ({
+          date: row.time.value,
+          absoluteViews: parseInt(row.views || 0)
+        }));
+
+        // Calculate daily increases (showing the problem)
+        const bigQueryIncreases = [];
+        for (let i = 0; i < bigQueryRaw.length; i++) {
+          const currentDay = bigQueryRaw[i];
+          let dailyIncrease = 0;
+
+          if (i === 0) {
+            // THIS IS THE PROBLEM!
+            dailyIncrease = currentDay.absoluteViews;
+            console.log(`🚨 FIRST DAY PROBLEM: Using ${currentDay.absoluteViews.toLocaleString()} as daily increase!`);
+          } else {
+            const previousDay = bigQueryRaw[i - 1];
+            dailyIncrease = currentDay.absoluteViews - previousDay.absoluteViews;
+          }
+
+          bigQueryIncreases.push({
+            date: currentDay.date,
+            absoluteViews: currentDay.absoluteViews,
+            dailyIncrease: Math.max(0, dailyIncrease),
+            isFirstDay: i === 0
+          });
+        }
+
+        const totalFromIncreases = bigQueryIncreases.reduce((sum, day) => sum + day.dailyIncrease, 0);
+
+        results.bigQueryData = {
+          rawRecords: bigQueryRows.length,
+          rawData: bigQueryRaw.slice(0, 5), // First 5 for display
+          increasesData: bigQueryIncreases.slice(0, 10), // First 10 for display
+          totalFromIncreases: totalFromIncreases,
+          firstDayProblem: bigQueryIncreases.length > 0 ? bigQueryIncreases[0].dailyIncrease : 0,
+          firstDay: bigQueryIncreases[0] || null,
+          lastDay: bigQueryIncreases[bigQueryIncreases.length - 1] || null
+        };
+
+        console.log(`📊 BigQuery: ${bigQueryRows.length} records, total from increases: ${totalFromIncreases.toLocaleString()}`);
+        console.log(`🚨 First day problem: ${results.bigQueryData.firstDayProblem.toLocaleString()}`);
+
+      } else {
+        results.errors.push('BigQuery: Not available');
+      }
+
+    } catch (bigQueryError) {
+      console.error('❌ BigQuery error:', bigQueryError);
+      results.errors.push(`BigQuery: ${bigQueryError.message}`);
+    }
+
+    // Summary
+    if (results.influxData && results.bigQueryData) {
+      results.comparison = {
+        influxTotal: results.influxData.calculatedTotal,
+        bigQueryTotal: results.bigQueryData.totalFromIncreases,
+        difference: Math.abs(results.influxData.calculatedTotal - results.bigQueryData.totalFromIncreases),
+        ratio: results.bigQueryData.totalFromIncreases / results.influxData.calculatedTotal,
+        firstDayIssue: results.bigQueryData.firstDayProblem
+      };
+
+      console.log(`🔍 COMPARISON:`);
+      console.log(`   InfluxDB: ${results.comparison.influxTotal.toLocaleString()}`);
+      console.log(`   BigQuery: ${results.comparison.bigQueryTotal.toLocaleString()}`);
+      console.log(`   Ratio: ${results.comparison.ratio.toFixed(2)}x`);
+      console.log(`   First Day Issue: ${results.comparison.firstDayIssue.toLocaleString()}`);
+    }
+
+    res.json(results);
+
+  } catch (error) {
+    console.error('🔍 DEBUG: Error in 30-day analysis:', error);
+    res.status(500).json({
+      error: '30-day analysis error',
+      message: error.message
+    });
   }
 });
 
@@ -2684,7 +3393,7 @@ router.get('/videos', authenticateToken, async (req, res) => {
   }
 });
 
-// Get top content for analytics page (PostgreSQL only - updated)
+// Get top content for analytics page (PostgreSQL + BigQuery enhanced)
 router.get('/writer/top-content', authenticateToken, async (req, res) => {
   try {
     const { writer_id, range = '28', limit = '10', type = 'all' } = req.query;
@@ -2693,7 +3402,7 @@ router.get('/writer/top-content', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: 'missing writer_id' });
     }
 
-    console.log('🏆 Getting top content from PostgreSQL for writer:', writer_id, 'Range:', range, 'Type:', type);
+    console.log('🏆 Getting top content with BigQuery enhancement for writer:', writer_id, 'Range:', range, 'Type:', type);
 
     // Calculate date range
     let startDate;
@@ -2715,20 +3424,26 @@ router.get('/writer/top-content', authenticateToken, async (req, res) => {
 
     console.log('📅 Date range:', startDate.toISOString().split('T')[0], 'to', endDate.toISOString().split('T')[0]);
 
-    // Build type filter for PostgreSQL using video_cat as primary source
+    // Build type filter for PostgreSQL using duration-based filtering (3-minute rule)
     let typeCondition = '';
     if (type === 'shorts') {
+      // Filter for videos less than 3 minutes (180 seconds)
       typeCondition = `AND (
-        video.video_cat = 'short' OR
-        (video.video_cat IS NULL AND video.url LIKE '%/shorts/%')
+        CASE
+          WHEN statistics_youtube_api.duration ~ '^[0-9]+:[0-9]+$' THEN
+            (SPLIT_PART(statistics_youtube_api.duration, ':', 1)::int * 60 + SPLIT_PART(statistics_youtube_api.duration, ':', 2)::int) < 180
+          ELSE false
+        END
       )`;
     } else if (type === 'content') {
+      // Filter for videos 3 minutes or longer (180+ seconds)
       typeCondition = `AND (
-        video.video_cat = 'long' OR
-        (video.video_cat IS NULL AND video.url NOT LIKE '%/shorts/%')
+        CASE
+          WHEN statistics_youtube_api.duration ~ '^[0-9]+:[0-9]+$' THEN
+            (SPLIT_PART(statistics_youtube_api.duration, ':', 1)::int * 60 + SPLIT_PART(statistics_youtube_api.duration, ':', 2)::int) >= 180
+          ELSE false
+        END
       )`;
-    } else if (type === 'full_to_short') {
-      typeCondition = `AND video.video_cat = 'full to short'`;
     }
 
     // Build date condition
@@ -2792,34 +3507,172 @@ router.get('/writer/top-content', authenticateToken, async (req, res) => {
         }
       }
 
+      // Calculate dynamic engagement rate based on actual data
+      const views = parseInt(row.views) || 0;
+      const likes = parseInt(row.likes) || 0;
+      const comments = parseInt(row.comments) || 0;
+
+      // Calculate engagement as (likes + comments) / views * 100
+      // If views is 0, engagement is 0
+      let engagementRate = 0;
+      if (views > 0) {
+        engagementRate = ((likes + comments) / views) * 100;
+        // Cap at 100% and round to 1 decimal place
+        engagementRate = Math.min(100, Math.round(engagementRate * 10) / 10);
+      }
+
       return {
         id: row.video_id,
         title: row.title || 'Untitled Video',
         url: row.url,
-        views: parseInt(row.views) || 0,
-        likes: parseInt(row.likes) || 0,
-        comments: parseInt(row.comments) || 0,
+        views: views,
+        likes: likes,
+        comments: comments,
         type: videoType,
         isShort: isShort,
         posted_date: row.posted_date,
         thumbnail: row.preview || `https://img.youtube.com/vi/${extractVideoId(row.url)}/maxresdefault.jpg`,
         duration: duration,
-        engagement: Math.floor(Math.random() * 15) + 85 // 85-100% engagement
+        engagement: engagementRate
       };
     });
 
     console.log('🏆 Top content found from PostgreSQL:', topContent.length, 'videos');
     console.log('📊 Sample top content:', topContent[0]);
 
+    // Enhance with BigQuery data for account names and writer names (using Content page approach)
+    let enhancedTopContent = topContent;
+    try {
+      console.log('🔍 Enhancing top content with BigQuery data using Content page approach...');
+
+      // Get writer name from PostgreSQL writer table
+      const writerQuery = 'SELECT writer_name FROM writer WHERE id = $1';
+      const writerResult = await pool.query(writerQuery, [writer_id]);
+      const writerName = writerResult.rows[0]?.writer_name || 'Unknown Writer';
+
+      // Step 1: Extract all video IDs from URLs
+      const videoIds = topContent.map(video => extractVideoId(video.url)).filter(id => id);
+
+      if (videoIds.length > 0) {
+        console.log(`🔍 Looking up ${videoIds.length} video IDs in BigQuery:`, videoIds.slice(0, 3));
+
+        // Step 2: Bulk query BigQuery for all videos at once (like Content page)
+        const bigQuerySql = `
+          SELECT
+            video_id,
+            channel_title,
+            account_name,
+            high_thumbnail_url,
+            medium_thumbnail_url
+          FROM \`speedy-web-461014-g3.dbt_youtube_analytics.youtube_metadata_historical\`
+          WHERE video_id IN UNNEST(@video_ids)
+        `;
+
+        const bigQueryOptions = {
+          query: bigQuerySql,
+          params: { video_ids: videoIds }
+        };
+
+        const [bigQueryRows] = await bigquery.query(bigQueryOptions);
+        console.log(`📊 BigQuery returned ${bigQueryRows.length} account records for top content`);
+
+        // Step 3: Create map of video_id to account names (like Content page)
+        const bigQueryAccountMap = new Map();
+        bigQueryRows.forEach(row => {
+          if (row.video_id) {
+            bigQueryAccountMap.set(row.video_id, {
+              account_name: row.account_name,
+              channel_title: row.channel_title,
+              high_thumbnail_url: row.high_thumbnail_url,
+              medium_thumbnail_url: row.medium_thumbnail_url
+            });
+          }
+        });
+
+        console.log(`📊 BigQuery enhanced account names for ${bigQueryAccountMap.size} top videos`);
+
+        // Step 4: Enhance each video with BigQuery data using our simplified function
+        enhancedTopContent = await Promise.all(topContent.map(async (video) => {
+          try {
+            // Use our simplified function to get account names
+            const accountName = await getAccountNameFromBigQuery(video.id, writer_id);
+
+            if (accountName) {
+              console.log(`✅ Got account name for video ${video.id}: ${accountName}`);
+              return {
+                ...video,
+                account_name: accountName,
+                writer_name: writerName,
+                channelTitle: accountName,
+                thumbnail: video.thumbnail
+              };
+            } else {
+              // Fallback to BigQuery map approach
+              const youtubeVideoId = extractVideoId(video.url);
+              const bigQueryData = bigQueryAccountMap.get(youtubeVideoId) || {};
+              const enhancedAccountName = bigQueryData.account_name || bigQueryData.channel_title || 'Not Available';
+
+              return {
+                ...video,
+                account_name: enhancedAccountName,
+                writer_name: writerName,
+                channelTitle: bigQueryData.channel_title,
+                highThumbnail: bigQueryData.high_thumbnail_url,
+                mediumThumbnail: bigQueryData.medium_thumbnail_url,
+                thumbnail: bigQueryData.high_thumbnail_url || bigQueryData.medium_thumbnail_url || video.thumbnail
+              };
+            }
+          } catch (videoError) {
+            console.warn(`⚠️ Could not enhance video ${video.id}:`, videoError.message);
+            return {
+              ...video,
+              account_name: 'Not Available',
+              writer_name: writerName
+            };
+          }
+        }));
+      } else {
+        // No video IDs found, just add writer names
+        enhancedTopContent = topContent.map(video => ({
+          ...video,
+          account_name: 'Not Available',
+          writer_name: writerName
+        }));
+      }
+
+      console.log('✅ Enhanced top content with BigQuery data');
+      console.log('📊 Sample enhanced content:', enhancedTopContent[0]);
+
+    } catch (enhanceError) {
+      console.warn('⚠️ Could not enhance with BigQuery data:', enhanceError.message);
+      // Continue with PostgreSQL data only
+    }
+
+    // Debug: Log what we're actually sending to frontend
+    console.log('📤 Sending top content response to frontend:');
+    console.log('📊 Number of videos:', enhancedTopContent.length);
+    if (enhancedTopContent.length > 0) {
+      console.log('📊 Sample video data:', {
+        title: enhancedTopContent[0].title,
+        account_name: enhancedTopContent[0].account_name,
+        writer_name: enhancedTopContent[0].writer_name,
+        views: enhancedTopContent[0].views
+      });
+      console.log('📊 All account names:', enhancedTopContent.map(v => ({
+        title: v.title?.substring(0, 30) + '...',
+        account_name: v.account_name
+      })));
+    }
+
     res.json({
       success: true,
-      data: topContent,
+      data: enhancedTopContent,
       metadata: {
         writer_id: writer_id,
         range: range,
         type: type,
-        total_found: topContent.length,
-        source: 'PostgreSQL'
+        total_found: enhancedTopContent.length,
+        source: 'PostgreSQL + BigQuery Enhanced'
       }
     });
 
@@ -2832,7 +3685,7 @@ router.get('/writer/top-content', authenticateToken, async (req, res) => {
   }
 });
 
-// Get latest content for analytics page (PostgreSQL only)
+// Get latest content for analytics page (PostgreSQL + BigQuery enhanced)
 router.get('/writer/latest-content', authenticateToken, async (req, res) => {
   try {
     const { writer_id } = req.query;
@@ -2841,7 +3694,7 @@ router.get('/writer/latest-content', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: 'missing writer_id' });
     }
 
-    console.log('📅 Getting latest content from PostgreSQL for writer:', writer_id);
+    console.log('📅 Getting latest content with BigQuery enhancement for writer:', writer_id);
 
     // Get latest content from PostgreSQL
     const latestContentQuery = `
@@ -2916,30 +3769,175 @@ router.get('/writer/latest-content', authenticateToken, async (req, res) => {
       }
     }
 
+    // Calculate dynamic engagement rate based on actual data
+    const views = parseInt(row.views) || 0;
+    const likes = parseInt(row.likes) || 0;
+    const comments = parseInt(row.comments) || 0;
+
+    // Calculate engagement as (likes + comments) / views * 100
+    let engagementRate = 0;
+    if (views > 0) {
+      engagementRate = ((likes + comments) / views) * 100;
+      // Cap at 100% and round to 1 decimal place
+      engagementRate = Math.min(100, Math.round(engagementRate * 10) / 10);
+    }
+
     const latestContent = {
       id: row.video_id,
       title: row.title || 'Untitled Video',
       url: row.url,
-      views: parseInt(row.views) || 0,
-      likes: parseInt(row.likes) || 0,
-      comments: parseInt(row.comments) || 0,
+      views: views,
+      likes: likes,
+      comments: comments,
       type: videoType,
       isShort: isShort,
       posted_date: row.posted_date,
       publishDate: formattedDate,
       thumbnail: row.preview || `https://img.youtube.com/vi/${extractVideoId(row.url)}/maxresdefault.jpg`,
       duration: duration,
-      engagement: Math.floor(Math.random() * 15) + 85 // 85-100% engagement
+      engagement: engagementRate
     };
 
     console.log('📅 Latest content found from PostgreSQL:', latestContent.title);
 
+    // Enhance with BigQuery data for account names and writer names (using Content page approach)
+    let enhancedLatestContent = latestContent;
+    try {
+      console.log('🔍 Enhancing latest content with BigQuery data using Content page approach...');
+
+      // Get writer name from PostgreSQL writer table
+      const writerQuery = 'SELECT writer_name FROM writer WHERE id = $1';
+      const writerResult = await pool.query(writerQuery, [writer_id]);
+      const writerName = writerResult.rows[0]?.writer_name || 'Unknown Writer';
+
+      // Extract video_id from URL for BigQuery lookup
+      const videoId = extractVideoId(latestContent.url);
+      console.log('🔍 Extracted video ID for BigQuery lookup:', videoId, 'from URL:', latestContent.url);
+
+      if (videoId) {
+        // Query BigQuery for enhanced data (using same approach as Content page)
+        const bigQuerySql = `
+          SELECT
+            video_id,
+            channel_title,
+            account_name,
+            high_thumbnail_url,
+            medium_thumbnail_url
+          FROM \`speedy-web-461014-g3.dbt_youtube_analytics.youtube_metadata_historical\`
+          WHERE video_id = @video_id
+          LIMIT 1
+        `;
+
+        const bigQueryOptions = {
+          query: bigQuerySql,
+          params: { video_id: videoId }
+        };
+
+        console.log('🔍 BigQuery query for latest content:', bigQuerySql);
+        console.log('🔍 BigQuery params:', bigQueryOptions.params);
+
+        const [bigQueryRows] = await bigquery.query(bigQueryOptions);
+        console.log('📊 BigQuery returned', bigQueryRows.length, 'rows for latest content');
+
+        // Try our simplified function first
+        try {
+          console.log(`🔍 Trying getAccountNameFromBigQuery for latest content video ${latestContent.id}...`);
+          const accountName = await getAccountNameFromBigQuery(latestContent.id, writer_id);
+
+          if (accountName) {
+            console.log(`✅ Got account name for latest content: ${accountName}`);
+            enhancedLatestContent = {
+              ...latestContent,
+              account_name: accountName,
+              writer_name: writerName,
+              channelTitle: accountName,
+              thumbnail: latestContent.thumbnail
+            };
+          } else {
+            throw new Error('No account name found');
+          }
+        } catch (retentionError) {
+          console.log(`⚠️ getAccountNameFromBigQuery failed, trying direct BigQuery:`, retentionError.message);
+
+          // Fallback to direct BigQuery approach
+          if (bigQueryRows.length > 0) {
+            const bigQueryData = bigQueryRows[0];
+            console.log('✅ BigQuery data found for latest content:', {
+              account_name: bigQueryData.account_name,
+              channel_title: bigQueryData.channel_title,
+              high_thumbnail_url: bigQueryData.high_thumbnail_url ? 'present' : 'missing',
+              medium_thumbnail_url: bigQueryData.medium_thumbnail_url ? 'present' : 'missing'
+            });
+
+            // Use whatever account name is available: BigQuery account_name, channel_title, or fallback (like Content page)
+            const enhancedAccountName = bigQueryData.account_name || bigQueryData.channel_title || 'Not Available';
+
+            // Enhance the latest content with BigQuery data
+            enhancedLatestContent = {
+              ...latestContent,
+              account_name: enhancedAccountName,
+              writer_name: writerName,
+              channelTitle: bigQueryData.channel_title,
+              highThumbnail: bigQueryData.high_thumbnail_url,
+              mediumThumbnail: bigQueryData.medium_thumbnail_url,
+              thumbnail: bigQueryData.high_thumbnail_url || bigQueryData.medium_thumbnail_url || latestContent.thumbnail
+            };
+            console.log('✅ Enhanced latest content account_name:', enhancedLatestContent.account_name);
+          } else {
+            console.log('❌ No BigQuery data found for video ID:', videoId);
+            // No BigQuery data found, add writer name only
+            enhancedLatestContent = {
+              ...latestContent,
+              account_name: 'Not Available',
+              writer_name: writerName
+            };
+          }
+        }
+      } else {
+        // Could not extract video ID, add writer name only
+        enhancedLatestContent = {
+          ...latestContent,
+          account_name: 'Not Available',
+          writer_name: writerName
+        };
+      }
+
+      console.log('✅ Enhanced latest content with BigQuery data');
+      console.log('📊 Enhanced latest content:', enhancedLatestContent.title, 'Account:', enhancedLatestContent.account_name);
+
+    } catch (enhanceError) {
+      console.warn('⚠️ Could not enhance latest content with BigQuery data:', enhanceError.message);
+      // Continue with PostgreSQL data only, but add writer name
+      try {
+        const writerQuery = 'SELECT writer_name FROM writer WHERE id = $1';
+        const writerResult = await pool.query(writerQuery, [writer_id]);
+        const writerName = writerResult.rows[0]?.writer_name || 'Unknown Writer';
+
+        enhancedLatestContent = {
+          ...latestContent,
+          account_name: 'Not Available',
+          writer_name: writerName
+        };
+      } catch (writerError) {
+        console.warn('⚠️ Could not get writer name:', writerError.message);
+      }
+    }
+
+    // Debug: Log what we're actually sending to frontend
+    console.log('📤 Sending latest content response to frontend:');
+    console.log('📊 Latest content data:', {
+      title: enhancedLatestContent.title,
+      account_name: enhancedLatestContent.account_name,
+      writer_name: enhancedLatestContent.writer_name,
+      views: enhancedLatestContent.views
+    });
+
     res.json({
       success: true,
-      data: latestContent,
+      data: enhancedLatestContent,
       metadata: {
         writer_id: writer_id,
-        source: 'PostgreSQL'
+        source: 'PostgreSQL + BigQuery Enhanced'
       }
     });
 
@@ -3024,6 +4022,116 @@ router.get('/test-influx-only', async (req, res) => {
       success: false,
       error: error.message,
       message: 'InfluxDB test failed'
+    });
+  }
+});
+
+// Test endpoint to check account name function
+router.get('/test-account-name', async (req, res) => {
+  try {
+    const { video_id = '1', writer_id = '110' } = req.query;
+
+    console.log(`🧪 Testing account name function for video ${video_id}, writer ${writer_id}`);
+
+    const accountName = await getAccountNameFromBigQuery(video_id, writer_id);
+
+    res.json({
+      success: true,
+      video_id: video_id,
+      writer_id: writer_id,
+      account_name: accountName,
+      message: accountName ? 'Account name found' : 'No account name found'
+    });
+
+  } catch (error) {
+    console.error('🧪 Account name test error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      message: 'Account name test failed'
+    });
+  }
+});
+
+// Test endpoint to show exact top content API response structure
+router.get('/test-top-content-response', async (req, res) => {
+  try {
+    const { writer_id = '110' } = req.query;
+
+    console.log(`🧪 Testing top content response structure for writer ${writer_id}`);
+
+    // Call the actual top content function to see what it returns
+    const topContentQuery = `
+      SELECT
+        video.id as video_id,
+        video.script_title AS title,
+        video.url,
+        COALESCE(statistics_youtube_api.views_total, 0) AS views,
+        COALESCE(statistics_youtube_api.likes_total, 0) AS likes,
+        COALESCE(statistics_youtube_api.comments_total, 0) AS comments,
+        statistics_youtube_api.preview,
+        statistics_youtube_api.duration,
+        statistics_youtube_api.posted_date as first_date
+      FROM video
+      LEFT JOIN statistics_youtube_api
+          ON CAST(video.id AS VARCHAR) = statistics_youtube_api.video_id
+      WHERE video.writer_id = $1
+        AND video.url LIKE '%youtube.com%'
+        AND statistics_youtube_api.views_total IS NOT NULL
+      ORDER BY statistics_youtube_api.views_total DESC
+      LIMIT 3
+    `;
+
+    const result = await pool.query(topContentQuery, [parseInt(writer_id)]);
+    const topContent = result.rows;
+
+    // Try to enhance with account names
+    const enhancedContent = await Promise.all(topContent.map(async (video) => {
+      const accountName = await getAccountNameFromBigQuery(video.video_id, writer_id);
+
+      return {
+        id: video.video_id,
+        title: video.title,
+        url: video.url,
+        views: video.views,
+        likes: video.likes,
+        comments: video.comments,
+        account_name: accountName || 'Not Available',
+        writer_name: 'Test Writer',
+        thumbnail: video.preview,
+        duration: video.duration
+      };
+    }));
+
+    console.log('🧪 Test response structure:', {
+      total_videos: enhancedContent.length,
+      sample_video: enhancedContent[0],
+      all_account_names: enhancedContent.map(v => v.account_name)
+    });
+
+    res.json({
+      success: true,
+      data: enhancedContent,
+      metadata: {
+        writer_id: writer_id,
+        total_found: enhancedContent.length,
+        source: 'Test Endpoint'
+      },
+      debug: {
+        message: 'This shows the exact structure being sent to frontend',
+        account_names: enhancedContent.map(v => ({
+          title: v.title,
+          account_name: v.account_name
+        }))
+      }
+    });
+
+  } catch (error) {
+    console.error('🧪 Test top content response error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      message: 'Test top content response failed'
     });
   }
 });
