@@ -309,8 +309,13 @@ app.post("/api/scripts", async (req, res) => {
     // Call getPostingAccount API to get a posting account for this card
     try {
       // Use the server's own URL for the API call
-      const serverUrl =
-        process.env.SERVER_URL || `http://localhost:${PORT}`;
+      // In production, use the actual domain; in development, use localhost
+      const serverUrl = process.env.SERVER_URL ||
+        (process.env.NODE_ENV === 'production'
+          ? `https://${process.env.VERCEL_URL || 'your-app.vercel.app'}`
+          : `http://localhost:${PORT}`);
+
+      console.log(`Making internal API call to: ${serverUrl}/api/getPostingAccount`);
       const response = await axios.post(`${serverUrl}/api/getPostingAccount`, {
         trello_card_id: trelloCardId,
         ignore_daily_limit: Boolean(isStoryLine),
@@ -344,6 +349,19 @@ if (accountName) {
       console.log(`Posting account assigned for card ${trelloCardId}`);
     } catch (postingAccountError) {
       console.error("Error assigning posting account:", postingAccountError);
+      console.error("Error details:", {
+        message: postingAccountError.message,
+        code: postingAccountError.code,
+        errno: postingAccountError.errno,
+        syscall: postingAccountError.syscall,
+        address: postingAccountError.address,
+        port: postingAccountError.port,
+        config: postingAccountError.config ? {
+          url: postingAccountError.config.url,
+          method: postingAccountError.config.method,
+          baseURL: postingAccountError.config.baseURL
+        } : 'No config available'
+      });
       // Continue execution - don't fail the request if posting account assignment fails
     }
 
@@ -3319,15 +3337,22 @@ app.post("/api/getPostingAccount", async (req, res) => {
       // If ignore_daily_limit is true, we'll get all accounts regardless of their daily usage
       // Otherwise, we'll use the standard post_acct_list view which may filter based on daily limits
       // Add a limit to prevent memory issues with large result sets
-          const itemsListQuery = ignore_daily_limit
-                ?`SELECT id, account FROM post_acct_list ORDER BY id LIMIT 1000;`
-                :`SELECT id, account from post_accts_by_trello_id_v3('${trello_card_id}') ORDER BY id`;
+      let itemsListQuery;
+      let queryParams = [];
+
+      if (ignore_daily_limit) {
+        itemsListQuery = `SELECT id, account FROM post_acct_list ORDER BY id LIMIT 1000`;
+      } else {
+        // Use parameterized query to avoid SQL injection and handle data type issues
+        itemsListQuery = `SELECT id, account::character varying as account from post_accts_by_trello_id_v3($1) ORDER BY id`;
+        queryParams = [trello_card_id];
+      }
 
       console.log(
         `Using query: ${itemsListQuery} (ignore_daily_limit=${ignore_daily_limit})`
       );
 
-      const result = await pool.query(itemsListQuery);
+      const result = await pool.query(itemsListQuery, queryParams);
       if (result.rows.length === 0) {
         return res.status(400).json({
           success: false,
@@ -3339,10 +3364,34 @@ app.post("/api/getPostingAccount", async (req, res) => {
       console.log(`Found ${accounts.length} available accounts`);
     } catch (error) {
       console.error("Error retrieving accounts:", error);
-      return res.status(500).json({
-        success: false,
-        error: "Failed to retrieve accounts from database.",
+      console.error("Error details:", {
+        code: error.code,
+        detail: error.detail,
+        hint: error.hint,
+        where: error.where
       });
+
+      // Fallback to the simple query if the function fails
+      try {
+        console.log("Attempting fallback to post_acct_list...");
+        const fallbackResult = await pool.query(`SELECT id, account FROM post_acct_list ORDER BY id LIMIT 1000`);
+        accounts = fallbackResult.rows;
+        console.log(`Fallback successful: Retrieved ${accounts.length} accounts`);
+
+        if (accounts.length === 0) {
+          return res.status(400).json({
+            success: false,
+            error: "No accounts available. Please check account status and usage limits.",
+          });
+        }
+      } catch (fallbackError) {
+        console.error("Fallback query also failed:", fallbackError);
+        return res.status(500).json({
+          success: false,
+          error: "Failed to retrieve accounts from database.",
+          details: error.message,
+        });
+      }
     }
 
     // Extract account names and create ID mapping
