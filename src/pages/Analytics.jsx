@@ -124,37 +124,40 @@ const Analytics = () => {
           }
         }
 
-        // Use BigQuery aggregatedViewsData directly (this is the correct chart data)
+        // Use BigQuery DAILY TOTALS data (exactly as QA script)
         if (overviewData.aggregatedViewsData && overviewData.aggregatedViewsData.length > 0) {
-          // Use the aggregatedViewsData directly - this is already in the correct format
+          // Use the daily totals data - each point is total views for a date
           viewsData = overviewData.aggregatedViewsData;
 
-          // Transform for chartData compatibility
+          // Transform daily totals for chart display - each point is daily total views
           chartData = overviewData.aggregatedViewsData.map(item => ({
             date: item.time,
             views: item.views,
-            formattedDate: dayjs(item.time).format('MMM D, YYYY')
+            formattedDate: dayjs(item.time).format('MMM D, YYYY'),
+            unique_videos: item.unique_videos || 0,
+            source: item.source || 'BigQuery_Daily_Totals'
           }));
 
           totalViews = overviewData.totalViews || viewsData.reduce((acc, item) => acc + item.views, 0);
 
-          console.log('✅ Using BigQuery aggregatedViewsData directly:', {
-            aggregatedViewsDataPoints: viewsData.length,
+          console.log('✅ Using BigQuery DAILY TOTALS (EXACTLY as QA script):', {
+            dailyTotalsPoints: viewsData.length,
             chartDataPoints: chartData.length,
             totalViews: totalViews.toLocaleString(),
-            sampleAggregatedData: viewsData[0],
-            sampleChartData: chartData[0]
+            sampleDailyTotal: viewsData[0],
+            sampleChartData: chartData[0],
+            dataTypes: [...new Set(viewsData.map(item => item.source))]
           });
 
-          // Debug: Check June 6th in processed data
-          const june6th = viewsData.find(item => item.time === '2025-06-06');
-          if (june6th) {
-            console.log('🎯 June 6th in processed viewsData:', june6th.views.toLocaleString(), 'views');
-          } else {
-            console.log('⚠️ June 6th missing from processed viewsData');
-          }
+          // Debug: Show sample of daily totals structure
+          console.log('📊 DAILY TOTALS Sample (first 3 points):', chartData.slice(0, 3).map(item => ({
+            date: item.date,
+            views: item.views,
+            unique_videos: item.unique_videos,
+            source: item.source
+          })));
         } else {
-          console.log('⚠️ No aggregatedViewsData in overview response');
+          console.log('⚠️ No daily totals data in overview response');
         }
       }
 
@@ -686,13 +689,39 @@ const Analytics = () => {
                     borderWidth: 1,
                     textStyle: { color: '#fff' },
                     formatter: (params) => {
-                      const date = params[0]?.axisValue || 'N/A';
-                      const value = params[0]?.value || 0;
-                      const formattedValue = formatNumber(value);
+                      const dataIndex = params[0]?.dataIndex;
+                      const dailyTotalPoint = analyticsData.aggregatedViewsData?.[dataIndex];
+
+                      if (!dailyTotalPoint) {
+                        const date = params[0]?.axisValue || 'N/A';
+                        const value = params[0]?.value || 0;
+                        const formattedValue = formatNumber(value);
+                        return `
+                          <div style="min-width: 200px;">
+                            <div style="font-size: 12px; color: #ccc;">${date}</div>
+                            <div style="font-size: 18px; font-weight: 600; color: #fff;">${formattedValue} views</div>
+                          </div>
+                        `;
+                      }
+
+                      const date = dailyTotalPoint.time;
+                      const views = formatNumber(dailyTotalPoint.views);
+                      const uniqueVideos = dailyTotalPoint.unique_videos || 0;
+                      const source = dailyTotalPoint.source || 'BigQuery_Daily_Totals';
+
                       return `
-                        <div style="min-width: 150px;">
-                          <div style="font-size: 12px; color: #ccc;">${date}</div>
-                          <div style="font-size: 18px; font-weight: 600; color: #fff;">${formattedValue} views</div>
+                        <div style="min-width: 250px; max-width: 350px;">
+                          <div style="font-size: 12px; color: #ccc; margin-bottom: 4px;">${dayjs(date).format('MMM D, YYYY')}</div>
+                          <div style="font-size: 18px; font-weight: 600; color: #fff; margin-bottom: 6px;">${views} total views</div>
+                          <div style="font-size: 11px; color: #aaa; margin-bottom: 2px;">
+                            📊 ${uniqueVideos} unique videos
+                          </div>
+                          <div style="font-size: 10px; color: #888; margin-bottom: 2px;">
+                            📅 Daily Total (QA Script)
+                          </div>
+                          <div style="font-size: 9px; color: #666;">
+                            📊 ${source}
+                          </div>
                         </div>
                       `;
                     },
@@ -732,7 +761,7 @@ const Analytics = () => {
                   },
                   series: [{
                     data: analyticsData.aggregatedViewsData?.map(item => item.views) || [],
-                    type: 'line',
+                    type: 'line', // Line chart for daily totals
                     smooth: true,
                     lineStyle: {
                       color: '#4fc3f7',
@@ -752,9 +781,25 @@ const Analytics = () => {
                       },
                     },
                     symbol: 'circle',
-                    symbolSize: 6,
+                    symbolSize: (_, params) => {
+                      const dataPoint = analyticsData.aggregatedViewsData?.[params.dataIndex];
+                      // Larger symbols for InfluxDB fallback data
+                      if (dataPoint?.source === 'InfluxDB_Hourly_Aggregation') {
+                        return 8; // Larger for fallback data
+                      }
+                      return 6; // Normal size for BigQuery data
+                    },
                     itemStyle: {
-                      color: '#4fc3f7'
+                      color: (params) => {
+                        const dataPoint = analyticsData.aggregatedViewsData?.[params.dataIndex];
+                        // Color code by data source
+                        if (dataPoint?.source === 'InfluxDB_Hourly_Aggregation') {
+                          return '#FF9800'; // Orange for InfluxDB fallback
+                        }
+                        return '#4fc3f7'; // Blue for BigQuery
+                      },
+                      borderColor: '#fff',
+                      borderWidth: 1
                     }
                   }]
                 }}
