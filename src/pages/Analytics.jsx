@@ -713,15 +713,7 @@ const Analytics = () => {
                         <div style="min-width: 250px; max-width: 350px;">
                           <div style="font-size: 12px; color: #ccc; margin-bottom: 4px;">${dayjs(date).format('MMM D, YYYY')}</div>
                           <div style="font-size: 18px; font-weight: 600; color: #fff; margin-bottom: 6px;">${views} total views</div>
-                          <div style="font-size: 11px; color: #aaa; margin-bottom: 2px;">
-                            📊 ${uniqueVideos} unique videos
-                          </div>
-                          <div style="font-size: 10px; color: #888; margin-bottom: 2px;">
-                            📅 Daily Total (QA Script)
-                          </div>
-                          <div style="font-size: 9px; color: #666;">
-                            📊 ${source}
-                          </div>
+                          
                         </div>
                       `;
                     },
