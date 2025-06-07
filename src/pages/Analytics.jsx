@@ -90,10 +90,16 @@ const Analytics = () => {
       console.log('📊 Will use BigQuery data from overview endpoint');
 
       // Fetch overview data from BigQuery (includes chart data and total views)
-      const overviewResponse = await fetch(`${buildApiUrl(API_CONFIG.ENDPOINTS.ANALYTICS.OVERVIEW)}?range=${dateRange}`, {
+      // Add strong cache-busting parameters to force fresh data
+      const cacheBuster = Date.now();
+      const randomId = Math.random().toString(36).substring(7);
+      const overviewResponse = await fetch(`${buildApiUrl(API_CONFIG.ENDPOINTS.ANALYTICS.OVERVIEW)}?range=${dateRange}&_t=${cacheBuster}&_r=${randomId}&force_refresh=true`, {
         headers: {
           'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0'
         }
       });
 
@@ -103,34 +109,52 @@ const Analytics = () => {
         console.log('📊 BigQuery Overview data received:', {
           totalViews: overviewData.totalViews,
           totalSubmissions: overviewData.totalSubmissions,
-          chartDataPoints: overviewData.chartData?.length || 0
+          chartDataPoints: overviewData.chartData?.length || 0,
+          aggregatedViewsDataPoints: overviewData.aggregatedViewsData?.length || 0
         });
 
-        // Use BigQuery chart data if available
-        if (overviewData.chartData && overviewData.chartData.length > 0) {
-          // Transform BigQuery chart data for the frontend
-          chartData = overviewData.chartData.map(item => ({
-            date: item.date,
+        // Debug: Check for June 6th in the received data
+        if (overviewData.aggregatedViewsData) {
+          const june6th = overviewData.aggregatedViewsData.find(item => item.time === '2025-06-06');
+          if (june6th) {
+            console.log('🎯 June 6th found in API response:', june6th.views.toLocaleString(), 'views');
+          } else {
+            console.log('⚠️ June 6th NOT found in API response');
+            console.log('📊 Available dates:', overviewData.aggregatedViewsData.slice(0, 5).map(item => item.time));
+          }
+        }
+
+        // Use BigQuery aggregatedViewsData directly (this is the correct chart data)
+        if (overviewData.aggregatedViewsData && overviewData.aggregatedViewsData.length > 0) {
+          // Use the aggregatedViewsData directly - this is already in the correct format
+          viewsData = overviewData.aggregatedViewsData;
+
+          // Transform for chartData compatibility
+          chartData = overviewData.aggregatedViewsData.map(item => ({
+            date: item.time,
             views: item.views,
-            formattedDate: dayjs(item.date).format('MMM D, YYYY')
+            formattedDate: dayjs(item.time).format('MMM D, YYYY')
           }));
 
-          // Create viewsData for compatibility (used by chart component)
-          viewsData = overviewData.chartData.map(item => ({
-            time: item.date,
-            views: item.views
-          }));
+          totalViews = overviewData.totalViews || viewsData.reduce((acc, item) => acc + item.views, 0);
 
-          totalViews = overviewData.totalViews || chartData.reduce((acc, item) => acc + item.views, 0);
-
-          console.log('✅ Using BigQuery chart data from overview:', {
+          console.log('✅ Using BigQuery aggregatedViewsData directly:', {
+            aggregatedViewsDataPoints: viewsData.length,
             chartDataPoints: chartData.length,
             totalViews: totalViews.toLocaleString(),
-            sampleData: chartData[0],
-            viewsDataSample: viewsData[0]
+            sampleAggregatedData: viewsData[0],
+            sampleChartData: chartData[0]
           });
+
+          // Debug: Check June 6th in processed data
+          const june6th = viewsData.find(item => item.time === '2025-06-06');
+          if (june6th) {
+            console.log('🎯 June 6th in processed viewsData:', june6th.views.toLocaleString(), 'views');
+          } else {
+            console.log('⚠️ June 6th missing from processed viewsData');
+          }
         } else {
-          console.log('⚠️ No chart data in overview response');
+          console.log('⚠️ No aggregatedViewsData in overview response');
         }
       }
 
@@ -161,11 +185,14 @@ const Analytics = () => {
           lowestDay: chartData.length > 0 ? Math.min(...chartData.map(d => d.views)) : 0
         },
         metadata: {
-          source: 'BigQuery + PostgreSQL',
+          source: 'NEW BigQuery Table (youtube_video_report_historical) + PostgreSQL',
+          dataSource: 'BigQuery: youtube_video_report_historical (daily views) + InfluxDB fallback',
           lastUpdated: new Date().toISOString(),
           dateRange: dateRange,
           bigQueryIntegrated: true,
-          postgresqlIntegrated: true
+          postgresqlIntegrated: true,
+          newTableImplemented: true,
+          tableUsed: 'youtube_video_report_historical'
         }
       };
 
@@ -181,6 +208,16 @@ const Analytics = () => {
       });
 
       setAnalyticsData(combinedData);
+
+      // Log successful data update for debugging
+      console.log('🎉 FRONTEND: Analytics data updated successfully!');
+      console.log('📊 FRONTEND: Chart should now display new BigQuery data');
+      if (combinedData.aggregatedViewsData) {
+        const june6th = combinedData.aggregatedViewsData.find(item => item.time === '2025-06-06');
+        if (june6th) {
+          console.log(`🎯 FRONTEND: June 6th will show ${june6th.views.toLocaleString()} views in chart`);
+        }
+      }
     } catch (err) {
       console.error('❌ Analytics API error:', err);
       setError(`Failed to load analytics data: ${err.message}`);
@@ -429,14 +466,22 @@ const Analytics = () => {
               </Select>
             </FormControl>
 
-            <Tooltip title="Refresh data">
+            <Tooltip title="Force Refresh (NEW SIMPLIFIED Analytics)">
               <IconButton
-                onClick={fetchAnalytics}
+                onClick={() => {
+                  console.log('🔄 FRONTEND: FORCE REFRESH - Clearing all caches and fetching new data...');
+                  console.log('🔄 FRONTEND: Using NEW SIMPLIFIED Analytics with duplicate date summing');
+                  // Clear any cached data
+                  setAnalyticsData(null);
+                  setError(null);
+                  // Force refresh with new data
+                  fetchAnalytics();
+                }}
                 sx={{
                   color: 'white',
-                  bgcolor: '#2A2A2A',
-                  border: '1px solid #444',
-                  '&:hover': { bgcolor: '#333' }
+                  bgcolor: '#FF6B00',
+                  border: '1px solid #FF6B00',
+                  '&:hover': { bgcolor: '#E55A00' }
                 }}
               >
                 <RefreshIcon />
@@ -528,6 +573,49 @@ const Analytics = () => {
                 </Box>
               )}
 
+              {/* Data Source Debug Panel */}
+              {analyticsData.metadata && (
+                <Box sx={{
+                  bgcolor: '#2A2A2A',
+                  border: '1px solid #333',
+                  borderRadius: '8px',
+                  p: 2,
+                  mb: 3,
+                  mx: 'auto',
+                  maxWidth: 800
+                }}>
+                  <Typography variant="body2" sx={{ color: '#E6B800', fontWeight: 600, mb: 1 }}>
+                    📊 Data Source Information
+                  </Typography>
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, fontSize: '12px' }}>
+                    <Box sx={{ color: '#4CAF50' }}>
+                      ✅ Table: {analyticsData.metadata.tableUsed || 'youtube_video_report_historical'}
+                    </Box>
+                    <Box sx={{ color: '#2196F3' }}>
+                      📅 Range: {analyticsData.metadata.dateRange}
+                    </Box>
+                    <Box sx={{ color: '#9C27B0' }}>
+                      📊 Points: {analyticsData.aggregatedViewsData?.length || 0}
+                    </Box>
+                    {(() => {
+                      const june6th = analyticsData.aggregatedViewsData?.find(item => item.time === '2025-06-06');
+                      return june6th ? (
+                        <Box sx={{ color: '#4CAF50' }}>
+                          🎯 June 6th: {june6th.views.toLocaleString()} views
+                        </Box>
+                      ) : (
+                        <Box sx={{ color: '#ff9800' }}>
+                          ⚠️ June 6th: Not in range
+                        </Box>
+                      );
+                    })()}
+                    <Box sx={{ color: '#888' }}>
+                      🕒 Updated: {new Date(analyticsData.metadata.lastUpdated).toLocaleTimeString()}
+                    </Box>
+                  </Box>
+                </Box>
+              )}
+
               {/* Additional Stats Row */}
               <Box sx={{
                 display: 'flex',
@@ -604,8 +692,47 @@ const Analytics = () => {
 
             </Box>
 
+            {/* Data Source Indicator */}
+            <Box sx={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              mb: 2,
+              mt: 4,
+              px: 1
+            }}>
+              <Typography variant="h6" sx={{ color: 'white', fontWeight: 600 }}>
+                Daily Views Chart
+              </Typography>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Box sx={{
+                  bgcolor: '#4CAF50',
+                  color: 'white',
+                  px: 1.5,
+                  py: 0.5,
+                  borderRadius: '12px',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 0.5
+                }}>
+                  <Box sx={{
+                    width: 6,
+                    height: 6,
+                    bgcolor: 'white',
+                    borderRadius: '50%'
+                  }} />
+                  NEW BigQuery Table
+                </Box>
+                <Typography variant="caption" sx={{ color: '#888', fontSize: '10px' }}>
+                  youtube_video_report_historical
+                </Typography>
+              </Box>
+            </Box>
+
             {/* Chart */}
-            <Box sx={{ width: '100%', height: '400px', mt: 4 }}>
+            <Box sx={{ width: '100%', height: '400px' }}>
               <ReactECharts
                 option={{
                   tooltip: {
