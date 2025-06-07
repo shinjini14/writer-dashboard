@@ -573,49 +573,7 @@ const Analytics = () => {
                 </Box>
               )}
 
-              {/* Data Source Debug Panel */}
-              {analyticsData.metadata && (
-                <Box sx={{
-                  bgcolor: '#2A2A2A',
-                  border: '1px solid #333',
-                  borderRadius: '8px',
-                  p: 2,
-                  mb: 3,
-                  mx: 'auto',
-                  maxWidth: 800
-                }}>
-                  <Typography variant="body2" sx={{ color: '#E6B800', fontWeight: 600, mb: 1 }}>
-                    📊 Data Source Information
-                  </Typography>
-                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, fontSize: '12px' }}>
-                    <Box sx={{ color: '#4CAF50' }}>
-                      ✅ Table: {analyticsData.metadata.tableUsed || 'youtube_video_report_historical'}
-                    </Box>
-                    <Box sx={{ color: '#2196F3' }}>
-                      📅 Range: {analyticsData.metadata.dateRange}
-                    </Box>
-                    <Box sx={{ color: '#9C27B0' }}>
-                      📊 Points: {analyticsData.aggregatedViewsData?.length || 0}
-                    </Box>
-                    {(() => {
-                      const june6th = analyticsData.aggregatedViewsData?.find(item => item.time === '2025-06-06');
-                      return june6th ? (
-                        <Box sx={{ color: '#4CAF50' }}>
-                          🎯 June 6th: {june6th.views.toLocaleString()} views
-                        </Box>
-                      ) : (
-                        <Box sx={{ color: '#ff9800' }}>
-                          ⚠️ June 6th: Not in range
-                        </Box>
-                      );
-                    })()}
-                    <Box sx={{ color: '#888' }}>
-                      🕒 Updated: {new Date(analyticsData.metadata.lastUpdated).toLocaleTimeString()}
-                    </Box>
-                  </Box>
-                </Box>
-              )}
-
+             
               {/* Additional Stats Row */}
               <Box sx={{
                 display: 'flex',
@@ -706,28 +664,14 @@ const Analytics = () => {
               </Typography>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                 <Box sx={{
-                  bgcolor: '#4CAF50',
-                  color: 'white',
-                  px: 1.5,
-                  py: 0.5,
-                  borderRadius: '12px',
-                  fontSize: '11px',
-                  fontWeight: 600,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 0.5
+                  
                 }}>
                   <Box sx={{
-                    width: 6,
-                    height: 6,
-                    bgcolor: 'white',
-                    borderRadius: '50%'
+                    
                   }} />
-                  NEW BigQuery Table
+                 
                 </Box>
-                <Typography variant="caption" sx={{ color: '#888', fontSize: '10px' }}>
-                  youtube_video_report_historical
-                </Typography>
+                
               </Box>
             </Box>
 
