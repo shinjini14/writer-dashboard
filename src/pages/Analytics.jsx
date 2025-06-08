@@ -23,6 +23,7 @@ import ReactECharts from 'echarts-for-react';
 import dayjs from 'dayjs';
 import Layout from '../components/Layout.jsx';
 import { buildApiUrl, API_CONFIG } from '../config/api.js';
+import RealtimeWidget from '../components/RealtimeWidget';
 
 // Utility functions like WriterAnalytics.jsx
 const formatNumber = (value) => {
@@ -678,125 +679,157 @@ const Analytics = () => {
               </Box>
             </Box>
 
-            {/* Chart */}
-            <Box sx={{ width: '100%', height: '400px' }}>
-              <ReactECharts
-                option={{
-                  tooltip: {
-                    trigger: 'axis',
-                    backgroundColor: 'rgba(50, 50, 50, 0.9)',
-                    borderColor: '#4fc3f7',
-                    borderWidth: 1,
-                    textStyle: { color: '#fff' },
-                    formatter: (params) => {
-                      const dataIndex = params[0]?.dataIndex;
-                      const dailyTotalPoint = analyticsData.aggregatedViewsData?.[dataIndex];
+            {/* Charts Container */}
+            <Box sx={{
+              display: 'flex',
+              gap: 3,
+              width: '100%',
+              height: '400px',
+              '@media (max-width: 1200px)': {
+                flexDirection: 'column',
+                height: 'auto'
+              }
+            }}>
+              {/* Main Line Chart */}
+              <Box sx={{
+                flex: '1 1 75%',
+                height: '400px',
+                minWidth: '600px',
+                '@media (max-width: 1200px)': {
+                  flex: '1 1 100%',
+                  minWidth: 'auto'
+                }
+              }}>
+                <ReactECharts
+                  option={{
+                    tooltip: {
+                      trigger: 'axis',
+                      backgroundColor: 'rgba(50, 50, 50, 0.9)',
+                      borderColor: '#4fc3f7',
+                      borderWidth: 1,
+                      textStyle: { color: '#fff' },
+                      formatter: (params) => {
+                        const dataIndex = params[0]?.dataIndex;
+                        const dailyTotalPoint = analyticsData.aggregatedViewsData?.[dataIndex];
 
-                      if (!dailyTotalPoint) {
-                        const date = params[0]?.axisValue || 'N/A';
-                        const value = params[0]?.value || 0;
-                        const formattedValue = formatNumber(value);
+                        if (!dailyTotalPoint) {
+                          const date = params[0]?.axisValue || 'N/A';
+                          const value = params[0]?.value || 0;
+                          const formattedValue = formatNumber(value);
+                          return `
+                            <div style="min-width: 200px;">
+                              <div style="font-size: 12px; color: #ccc;">${date}</div>
+                              <div style="font-size: 18px; font-weight: 600; color: #fff;">${formattedValue} views</div>
+                            </div>
+                          `;
+                        }
+
+                        const date = dailyTotalPoint.time;
+                        const views = formatNumber(dailyTotalPoint.views);
+                        const uniqueVideos = dailyTotalPoint.unique_videos || 0;
+
                         return `
-                          <div style="min-width: 200px;">
-                            <div style="font-size: 12px; color: #ccc;">${date}</div>
-                            <div style="font-size: 18px; font-weight: 600; color: #fff;">${formattedValue} views</div>
+                          <div style="min-width: 250px; max-width: 350px;">
+                            <div style="font-size: 12px; color: #ccc; margin-bottom: 4px;">${dayjs(date).format('MMM D, YYYY')}</div>
+                            <div style="font-size: 18px; font-weight: 600; color: #fff; margin-bottom: 6px;">${views} total views</div>
+                            <div style="font-size: 12px; color: #888;">${uniqueVideos} videos posted</div>
                           </div>
                         `;
-                      }
-
-                      const date = dailyTotalPoint.time;
-                      const views = formatNumber(dailyTotalPoint.views);
-                      const uniqueVideos = dailyTotalPoint.unique_videos || 0;
-                      const source = dailyTotalPoint.source || 'BigQuery_Daily_Totals';
-
-                      return `
-                        <div style="min-width: 250px; max-width: 350px;">
-                          <div style="font-size: 12px; color: #ccc; margin-bottom: 4px;">${dayjs(date).format('MMM D, YYYY')}</div>
-                          <div style="font-size: 18px; font-weight: 600; color: #fff; margin-bottom: 6px;">${views} total views</div>
-                          
-                        </div>
-                      `;
-                    },
-                    extraCssText: 'box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);',
-                  },
-                  grid: {
-                    left: '3%',
-                    right: '4%',
-                    bottom: '3%',
-                    containLabel: true,
-                    backgroundColor: 'transparent'
-                  },
-                  xAxis: {
-                    type: 'category',
-                    boundaryGap: false,
-                    data: analyticsData.aggregatedViewsData?.map(item => formatDate(item.time)) || [],
-                    axisLabel: {
-                      formatter: (value, index) => index % 2 === 0 ? value : '',
-                      color: '#9e9e9e'
-                    },
-                    axisLine: {
-                      lineStyle: { color: '#424242' }
-                    }
-                  },
-                  yAxis: {
-                    type: 'value',
-                    axisLabel: {
-                      formatter: formatNumber,
-                      color: '#9e9e9e'
-                    },
-                    axisLine: {
-                      lineStyle: { color: '#424242' }
-                    },
-                    splitLine: {
-                      lineStyle: { color: '#424242', type: 'dashed' }
-                    }
-                  },
-                  series: [{
-                    data: analyticsData.aggregatedViewsData?.map(item => item.views) || [],
-                    type: 'line', // Line chart for daily totals
-                    smooth: true,
-                    lineStyle: {
-                      color: '#4fc3f7',
-                      width: 3
-                    },
-                    areaStyle: {
-                      color: {
-                        type: 'linear',
-                        x: 0,
-                        y: 0,
-                        x2: 0,
-                        y2: 1,
-                        colorStops: [
-                          { offset: 0, color: 'rgba(79, 195, 247, 0.3)' },
-                          { offset: 1, color: 'rgba(79, 195, 247, 0.05)' },
-                        ],
                       },
+                      extraCssText: 'box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);',
                     },
-                    symbol: 'circle',
-                    symbolSize: (_, params) => {
-                      const dataPoint = analyticsData.aggregatedViewsData?.[params.dataIndex];
-                      // Larger symbols for InfluxDB fallback data
-                      if (dataPoint?.source === 'InfluxDB_Hourly_Aggregation') {
-                        return 8; // Larger for fallback data
+                    grid: {
+                      left: '3%',
+                      right: '4%',
+                      bottom: '3%',
+                      containLabel: true,
+                      backgroundColor: 'transparent'
+                    },
+                    xAxis: {
+                      type: 'category',
+                      boundaryGap: false,
+                      data: analyticsData.aggregatedViewsData?.map(item => formatDate(item.time)) || [],
+                      axisLabel: {
+                        formatter: (value, index) => index % 2 === 0 ? value : '',
+                        color: '#9e9e9e'
+                      },
+                      axisLine: {
+                        lineStyle: { color: '#424242' }
                       }
-                      return 6; // Normal size for BigQuery data
                     },
-                    itemStyle: {
-                      color: (params) => {
+                    yAxis: {
+                      type: 'value',
+                      axisLabel: {
+                        formatter: formatNumber,
+                        color: '#9e9e9e'
+                      },
+                      axisLine: {
+                        lineStyle: { color: '#424242' }
+                      },
+                      splitLine: {
+                        lineStyle: { color: '#424242', type: 'dashed' }
+                      }
+                    },
+                    series: [{
+                      data: analyticsData.aggregatedViewsData?.map(item => item.views) || [],
+                      type: 'line', // Line chart for daily totals
+                      smooth: true,
+                      lineStyle: {
+                        color: '#4fc3f7',
+                        width: 3
+                      },
+                      areaStyle: {
+                        color: {
+                          type: 'linear',
+                          x: 0,
+                          y: 0,
+                          x2: 0,
+                          y2: 1,
+                          colorStops: [
+                            { offset: 0, color: 'rgba(79, 195, 247, 0.3)' },
+                            { offset: 1, color: 'rgba(79, 195, 247, 0.05)' },
+                          ],
+                        },
+                      },
+                      symbol: 'circle',
+                      symbolSize: (_, params) => {
                         const dataPoint = analyticsData.aggregatedViewsData?.[params.dataIndex];
-                        // Color code by data source
+                        // Larger symbols for InfluxDB fallback data
                         if (dataPoint?.source === 'InfluxDB_Hourly_Aggregation') {
-                          return '#FF9800'; // Orange for InfluxDB fallback
+                          return 8; // Larger for fallback data
                         }
-                        return '#4fc3f7'; // Blue for BigQuery
+                        return 6; // Normal size for BigQuery data
                       },
-                      borderColor: '#fff',
-                      borderWidth: 1
-                    }
-                  }]
-                }}
-                style={{ height: '100%', width: '100%' }}
-              />
+                      itemStyle: {
+                        color: (params) => {
+                          const dataPoint = analyticsData.aggregatedViewsData?.[params.dataIndex];
+                          // Color code by data source
+                          if (dataPoint?.source === 'InfluxDB_Hourly_Aggregation') {
+                            return '#FF9800'; // Orange for InfluxDB fallback
+                          }
+                          return '#4fc3f7'; // Blue for BigQuery
+                        },
+                        borderColor: '#fff',
+                        borderWidth: 1
+                      }
+                    }]
+                  }}
+                  style={{ height: '100%', width: '100%' }}
+                />
+              </Box>
+
+              {/* Realtime Hourly Views Bar Chart */}
+              <Box sx={{
+                flex: '1 1 25%',
+                height: '400px',
+                minWidth: '300px',
+                '@media (max-width: 1200px)': {
+                  flex: '1 1 100%',
+                  minWidth: 'auto'
+                }
+              }}>
+                <RealtimeWidget />
+              </Box>
             </Box>
 
             {/* Top Content Section */}

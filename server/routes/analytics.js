@@ -166,7 +166,7 @@ const getBigQueryClient = () => {
 };
 
 // BigQuery helper functions - Updated to use youtube_video_report_historical exactly as QA script
-async function getBigQueryViews(writerId, startDate, endDate) {
+async function getBigQueryViews(writerId, startDate, endDate, influxService = null) {
   try {
     console.log(`📊 QA Script Analytics: Getting views for writer ${writerId} from ${startDate} to ${endDate}`);
 
@@ -336,6 +336,40 @@ async function getBigQueryViews(writerId, startDate, endDate) {
           console.error('❌ Full InfluxDB fallback error:', influxError);
           throw new Error('Both BigQuery and InfluxDB failed');
         }
+      }
+    }
+
+    // Add recent days using InfluxDB realtime data if missing
+    const today = new Date().toISOString().split('T')[0];
+    const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+    const hasToday = allData.some(item => item.time.value === today);
+    const hasYesterday = allData.some(item => item.time.value === yesterday);
+
+    if (!hasToday || !hasYesterday) {
+      console.log(`📊 Adding missing recent days: today=${!hasToday}, yesterday=${!hasYesterday}`);
+
+      try {
+        // Get recent data from InfluxDB for the last 3 days
+        const recentData = await influxService.getDashboardAnalytics('3d', writerId);
+
+        recentData.forEach(day => {
+          const utcDate = new Date(day.date);
+          const estDate = new Date(utcDate.getTime() - (5 * 60 * 60 * 1000)); // UTC-5 for EST
+          const dayDate = estDate.toISOString().split('T')[0];
+
+          // Only add if this date is missing and is today or yesterday
+          if ((dayDate === today || dayDate === yesterday) && !allData.some(item => item.time.value === dayDate)) {
+            allData.push({
+              time: { value: dayDate },
+              views: day.views,
+              source: 'InfluxDB_Recent_Days'
+            });
+            console.log(`✅ Added missing ${dayDate}: ${day.views} views from InfluxDB`);
+          }
+        });
+      } catch (recentError) {
+        console.error('❌ Could not add recent days from InfluxDB:', recentError.message);
       }
     }
 
@@ -853,7 +887,7 @@ async function getBigQueryAnalyticsOverview(
         const stopRFC = utcEndDate.toISOString();
 
         const flux = `
-          from(bucket:"youtube_analytics")
+          from(bucket:"youtube_api")
             |> range(start: ${startRFC}, stop: ${stopRFC})
             |> filter(fn: r =>
                  r["_measurement"] == "views" and
@@ -1838,7 +1872,7 @@ router.get('/channel', authenticateToken, async (req, res) => {
         console.log(`📊 BigQuery date range: ${startDateStr} to ${endDateStr}`);
 
         // Get chart data from BigQuery
-        const bigQueryData = await getBigQueryViews(writerId, startDateStr, endDateStr);
+        const bigQueryData = await getBigQueryViews(writerId, startDateStr, endDateStr, influxService);
 
         // Transform BigQuery data for chart
         chartData = bigQueryData.map(row => ({
@@ -2258,7 +2292,7 @@ router.get('/writer/views', authenticateToken, async (req, res) => {
 
     try {
       // Get BigQuery views data
-      const bigQueryRows = await getBigQueryViews(writer_id, startDate, endDate);
+      const bigQueryRows = await getBigQueryViews(writer_id, startDate, endDate, influxService);
       console.log(`📊 BigQuery returned ${bigQueryRows.length} rows for writer ${writer_id}`);
 
       // Transform data to match WriterAnalytics component format
@@ -3411,7 +3445,7 @@ router.get('/test-new-bigquery', async (req, res) => {
 
     console.log(`🧪 Date range: ${startDateStr} to ${endDateStr}`);
 
-    const result = await getBigQueryViews(writer_id, startDateStr, endDateStr);
+    const result = await getBigQueryViews(writer_id, startDateStr, endDateStr, influxService);
 
     res.json({
       success: true,
@@ -3429,6 +3463,156 @@ router.get('/test-new-bigquery', async (req, res) => {
       error: error.message,
       message: 'New BigQuery function test failed'
     });
+  }
+});
+
+// Realtime analytics endpoint - Last 24 hours hourly data
+router.get('/realtime', authenticateToken, async (req, res) => {
+  try {
+    const { hours = 24 } = req.query;
+    const userId = req.user.id;
+
+    console.log(`⚡ Realtime analytics requested for user ${userId}, last ${hours} hours`);
+
+    // Get writer info directly using the user ID from JWT token
+    const writerResult = await pool.query(
+      'SELECT id, name FROM writer WHERE login_id = $1',
+      [userId]
+    );
+
+    if (writerResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Writer not found' });
+    }
+
+    const writer = writerResult.rows[0];
+    const writerId = writer.id.toString(); // Convert to string for InfluxDB query
+
+    console.log(`⚡ Found writer: ${writer.name} (ID: ${writerId})`);
+
+    // Calculate time range for last 24 hours
+    const endTime = new Date();
+    const startTime = new Date(endTime.getTime() - (parseInt(hours) * 60 * 60 * 1000));
+
+    console.log(`⚡ Time range: ${startTime.toISOString()} to ${endTime.toISOString()}`);
+
+    // Query InfluxDB youtube_api bucket for hourly data
+    let hourlyData = [];
+    let totalViews = 0;
+
+    try {
+      const InfluxService = require('../services/influxService');
+      const influx = new InfluxService();
+
+
+
+      // Query to get hourly view increments (not cumulative totals) from InfluxDB
+const flux = `
+    from(bucket: "youtube_api")
+        |> range(start: -25h, stop: -1h)
+        |> filter(fn: (r) =>
+             r._measurement == "views" and
+             r._field       == "views" and
+             r.writer_id    == "${writerId}"
+           )
+        |> map(fn: (r) => ({ r with _value: int(v: r._value) }))
+        |> group(columns: ["video_id"])
+        |> sort(columns: ["_time"])
+        |> difference(nonNegative: true, columns: ["_value"])
+        |> group()
+        |> aggregateWindow(every: 1h, fn: sum, createEmpty: false)
+        |> keep(columns: ["_time", "_value"])
+        |> sort(columns: ["_time"])
+        |> limit(n: 24)
+`;
+
+
+      console.log(`⚡ InfluxDB youtube_api query for writer_id ${writerId}: ${flux}`);
+
+      let influxResults = [];
+      try {
+        // Use Promise to ensure we wait for the query to complete
+        await new Promise((resolve, reject) => {
+          influx.queryApi.queryRows(flux, {
+            next(row, tableMeta) {
+              const o = tableMeta.toObject(row);
+              influxResults.push({
+                _time: o._time,
+                _value: o._value || 0
+              });
+            },
+            error(error) {
+              console.error(`⚡ InfluxDB queryRows error:`, error.message);
+              reject(error);
+            },
+            complete() {
+              console.log(`⚡ InfluxDB queryRows returned ${influxResults.length} raw results`);
+              resolve();
+            }
+          });
+        });
+      } catch (err) {
+        console.error(`⚡ InfluxDB query error:`, err.message);
+        influxResults = [];
+      }
+
+      // Convert to format expected by frontend
+      hourlyData = influxResults.map(item => ({
+        time: new Date(item._time).toISOString(),
+        views: parseInt(item._value || 0)
+      }));
+
+      totalViews = hourlyData.reduce((sum, item) => sum + item.views, 0);
+
+      console.log(`⚡ InfluxDB youtube_api returned ${hourlyData.length} hourly data points`);
+      console.log(`⚡ InfluxDB total views: ${totalViews.toLocaleString()}`);
+
+      // Log sample data for debugging
+      if (hourlyData.length > 0) {
+        console.log(`⚡ Sample hourly data:`, hourlyData.slice(0, 3));
+      }
+
+    } catch (influxError) {
+      console.error('⚡ InfluxDB error:', influxError.message);
+
+      // Return empty data if InfluxDB fails
+      hourlyData = [];
+      totalViews = 0;
+    }
+
+    // Format chart data for the widget (last 24 bars representing hourly data)
+    const chartData = hourlyData.slice(-24).map((item) => {
+      const date = new Date(item.time);
+      // Convert UTC to EST for display
+      const estDate = new Date(date.getTime() - (5 * 60 * 60 * 1000));
+
+      return {
+        time: estDate.toLocaleTimeString('en-US', {
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: false
+        }),
+        views: item.views,
+        hour: estDate.getHours()
+      };
+    });
+
+    const response = {
+      totalViews: totalViews,
+      chartData: chartData,
+      lastUpdated: new Date().toISOString(),
+      timeRange: `${hours} hours`,
+      dataPoints: hourlyData.length,
+      writerId: writerId,
+      writerName: writer.name
+    };
+
+    console.log(`⚡ Realtime response: ${totalViews.toLocaleString()} views, ${chartData.length} chart points`);
+
+    res.json(response);
+
+  } catch (error) {
+    console.error('⚡ Realtime endpoint error:', error);
+    res.status(500).json({ error: 'Failed to fetch realtime data' });
   }
 });
 
