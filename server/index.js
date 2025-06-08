@@ -1692,7 +1692,7 @@ async function getBigQueryVideoAnalytics(videoId, writerId, range = 'lifetime') 
     const duration = durationRows.length > 0 && durationRows[0].duration ? durationRows[0].duration : null;
 
     if (!duration) {
-      throw new Error(`No duration data available for video ${videoId}`);
+      console.log(`⚠️ No duration data available for video ${videoId} - using fallback`);
     }
 
     // Calculate average view duration from BigQuery data
@@ -1868,8 +1868,7 @@ app.get("/api/video/:id", async (req, res) => {
         const duration = durationRows.length > 0 && durationRows[0].duration ? durationRows[0].duration : null;
 
         if (!duration) {
-          console.log(`❌ No duration data available for video ${id} - skipping InfluxDB path`);
-          throw new Error(`No duration data available for video ${id}`);
+          console.log(`⚠️ No duration data available for video ${id} - using fallback duration`);
         }
         // Get real audience retention data from BigQuery - PRIMARY SOURCE
         let retentionData = [];
@@ -2079,13 +2078,9 @@ app.get("/api/video/:id", async (req, res) => {
         preview: video.preview
       });
 
-      // Check if video has duration data - reject if not
+      // Log if video has no duration data but continue processing
       if (!video.duration) {
-        console.log(`❌ Video ${id} has no duration data - cannot process`);
-        return res.status(404).json({
-          error: "Video duration data not available",
-          message: "This video cannot be displayed because duration data is missing from the database"
-        });
+        console.log(`⚠️ Video ${id} has no duration data - will use fallback duration`);
       }
 
       // Use actual duration from database (no fallbacks)
@@ -2095,17 +2090,23 @@ app.get("/api/video/:id", async (req, res) => {
       // Determine video type based on duration (< 3 minutes = short, >= 3 minutes = video)
       let videoType = 'video'; // default
       let isShort = false;
+      const fallbackDuration = duration || '0:00'; // Use fallback if duration is missing
 
-      const parts = duration.split(':');
-      if (parts.length >= 2) {
-        const minutes = parseInt(parts[0]) || 0;
-        const seconds = parseInt(parts[1]) || 0;
-        const totalSeconds = minutes * 60 + seconds;
+      if (duration) {
+        const parts = duration.split(':');
+        if (parts.length >= 2) {
+          const minutes = parseInt(parts[0]) || 0;
+          const seconds = parseInt(parts[1]) || 0;
+          const totalSeconds = minutes * 60 + seconds;
 
-        if (totalSeconds < 180) { // Less than 3 minutes (180 seconds)
-          videoType = 'short';
-          isShort = true;
+          if (totalSeconds < 180) { // Less than 3 minutes (180 seconds)
+            videoType = 'short';
+            isShort = true;
+          }
         }
+      } else {
+        // If no duration data, assume it's a video (not short) as default
+        console.log(`⚠️ No duration data for video ${id}, defaulting to video type`);
       }
 
       console.log(`🎬 Video type determined by duration: ${videoType}, Duration: ${duration}, isShort: ${isShort}`);
@@ -2130,8 +2131,8 @@ app.get("/api/video/:id", async (req, res) => {
       const chartData = generateMockViewsChartData(video.views_total || 0);
 
       // Try to get real audience retention data from BigQuery, fallback to mock if not available
-      let retentionData = generateRetentionData(duration);
-      let avgViewDuration = generateAverageViewDuration(duration);
+      let retentionData = generateRetentionData(fallbackDuration);
+      let avgViewDuration = generateAverageViewDuration(fallbackDuration);
       let stayedToWatch = Math.floor(Math.random() * 30) + 70;
       let accountName = 'Unknown Account';
 
@@ -2144,27 +2145,29 @@ app.get("/api/video/:id", async (req, res) => {
           accountName = retentionResult.accountName;
 
           // Adjust time format based on actual video duration
-          const parts = duration.split(':');
-          if (parts.length >= 2) {
-            const totalSeconds = parseInt(parts[0]) * 60 + parseInt(parts[1]);
-            console.log(`🕐 PostgreSQL path - Video duration: ${duration} = ${totalSeconds} seconds`);
+          if (duration) {
+            const parts = duration.split(':');
+            if (parts.length >= 2) {
+              const totalSeconds = parseInt(parts[0]) * 60 + parseInt(parts[1]);
+              console.log(`🕐 PostgreSQL path - Video duration: ${duration} = ${totalSeconds} seconds`);
 
-            retentionData = retentionData.map((point, index) => {
-              const actualSeconds = Math.floor(point.timeRatio * totalSeconds);
-              const minutes = Math.floor(actualSeconds / 60);
-              const seconds = actualSeconds % 60;
-              const timeStr = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+              retentionData = retentionData.map((point, index) => {
+                const actualSeconds = Math.floor(point.timeRatio * totalSeconds);
+                const minutes = Math.floor(actualSeconds / 60);
+                const seconds = actualSeconds % 60;
+                const timeStr = `${minutes}:${seconds.toString().padStart(2, '0')}`;
 
-              // Log first few conversions for debugging
-              if (index < 3) {
-                console.log(`🕐 PostgreSQL time conversion ${index}: ratio=${point.timeRatio} → ${actualSeconds}s → ${timeStr}`);
-              }
+                // Log first few conversions for debugging
+                if (index < 3) {
+                  console.log(`🕐 PostgreSQL time conversion ${index}: ratio=${point.timeRatio} → ${actualSeconds}s → ${timeStr}`);
+                }
 
-              return {
-                ...point,
-                time: timeStr
-              };
-            });
+                return {
+                  ...point,
+                  time: timeStr
+                };
+              });
+            }
           }
 
           console.log(`📊 PostgreSQL path: Using real retention data: ${retentionData.length} points, account: ${accountName}`);
@@ -2182,8 +2185,8 @@ app.get("/api/video/:id", async (req, res) => {
         url: bigQueryData?.url || video.url,
         thumbnail: isShort ? '🎯' : '📺',
         color: isShort ? '#4CAF50' : '#2196F3',
-        // Duration from BigQuery if available, otherwise PostgreSQL
-        duration: bigQueryData?.duration || duration,
+        // Duration from BigQuery if available, otherwise PostgreSQL, with fallback
+        duration: bigQueryData?.duration || fallbackDuration,
         // Views from PostgreSQL (original source)
         views: video.views_total || 0,
         viewsIncrease: Math.floor(Math.random() * 50) + 20,

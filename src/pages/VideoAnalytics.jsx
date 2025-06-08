@@ -131,7 +131,7 @@ const VideoAnalytics = () => {
   };
 
   const calculateRetentionRate = (avgViewDuration, totalDuration) => {
-    if (!avgViewDuration || !totalDuration) return 75; // Default fallback
+    if (!avgViewDuration || !totalDuration) return 0; // Default fallback
 
     // Parse duration strings (e.g., "1:30" -> 90 seconds)
     const parseTime = (timeStr) => {
@@ -805,12 +805,12 @@ const VideoAnalytics = () => {
                     />
                   ) : null}
 
-                  {/* Fallback icon display */}
+                  {/* Fallback icon display - Always show if no thumbnail is available */}
                   <Box sx={{
                     width: '100%',
                     height: '100%',
                     bgcolor: videoData.color || '#333',
-                    display: videoData.preview ? 'none' : 'flex',
+                    display: (videoData.highThumbnail || videoData.mediumThumbnail || videoData.preview) ? 'none' : 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     fontSize: '60px'
