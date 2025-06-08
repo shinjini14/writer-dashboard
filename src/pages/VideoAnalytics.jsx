@@ -315,11 +315,13 @@ const VideoAnalytics = () => {
 
 
         {/* Performance Summary */}
-        <Box sx={{ textAlign: 'center', mb: 6 }}>
-          <Typography variant="h4" sx={{ color: 'white', fontWeight: 600, mb: 2 }}>
-            Great job! Views are {videoData.viewsIncrease}% higher than your other {videoData.isShort ? 'Shorts' : 'Videos'}.
-          </Typography>
-        </Box>
+        {videoData.views > 0 && (
+          <Box sx={{ textAlign: 'center', mb: 6 }}>
+            <Typography variant="h4" sx={{ color: 'white', fontWeight: 600, mb: 2 }}>
+              Great job! Views are {videoData.viewsIncrease}% higher than your other {videoData.isShort ? 'Shorts' : 'Videos'}.
+            </Typography>
+          </Box>
+        )}
 
         {/* Tab Content */}
         {tabValue === 0 && (
@@ -476,30 +478,50 @@ const VideoAnalytics = () => {
                   <Typography variant="body2" sx={{ color: '#888', mb: 1 }}>
                     Stayed to watch
                   </Typography>
-                  <Typography variant="h4" sx={{ color: 'white', fontWeight: 700 }}>
-                    {videoData.retentionRate || calculateRetentionRate(videoData.avgViewDuration, videoData.duration)}%
-                  </Typography>
+                  {videoData.views > 0 && videoData.avgViewDuration && videoData.duration ? (
+                    <Typography variant="h4" sx={{ color: 'white', fontWeight: 700 }}>
+                      {videoData.retentionRate || calculateRetentionRate(videoData.avgViewDuration, videoData.duration)}%
+                    </Typography>
+                  ) : (
+                    <Typography variant="h6" sx={{ color: '#666', fontWeight: 500 }}>
+                      No data yet
+                    </Typography>
+                  )}
                 </Box>
 
                 <Box sx={{ mb: 3 }}>
                   <Typography variant="body2" sx={{ color: '#888', mb: 1 }}>
                     Average view duration
                   </Typography>
-                  <Typography variant="h4" sx={{ color: 'white', fontWeight: 700 }}>
-                    {videoData.avgViewDuration}
-                  </Typography>
+                  {videoData.avgViewDuration && videoData.views > 0 ? (
+                    <Typography variant="h4" sx={{ color: 'white', fontWeight: 700 }}>
+                      {videoData.avgViewDuration}
+                    </Typography>
+                  ) : (
+                    <Typography variant="h6" sx={{ color: '#666', fontWeight: 500 }}>
+                      No data yet
+                    </Typography>
+                  )}
                 </Box>
 
                 <Box sx={{ mb: 4 }}>
                   <Typography variant="body2" sx={{ color: '#888', mb: 1 }}>
                     Engagement rate
                   </Typography>
-                  <Typography variant="h4" sx={{ color: 'white', fontWeight: 700 }}>
-                    {calculateEngagement(videoData.likes, videoData.views)}%
-                  </Typography>
-                  <Typography variant="caption" sx={{ color: '#666' }}>
-                    {formatNumber(videoData.likes)} likes / {formatNumber(videoData.views)} views
-                  </Typography>
+                  {videoData.likes > 0 && videoData.views > 0 ? (
+                    <>
+                      <Typography variant="h4" sx={{ color: 'white', fontWeight: 700 }}>
+                        {calculateEngagement(videoData.likes, videoData.views)}%
+                      </Typography>
+                      <Typography variant="caption" sx={{ color: '#666' }}>
+                        {formatNumber(videoData.likes)} likes / {formatNumber(videoData.views)} views
+                      </Typography>
+                    </>
+                  ) : (
+                    <Typography variant="h6" sx={{ color: '#666', fontWeight: 500 }}>
+                      No data yet
+                    </Typography>
+                  )}
                 </Box>
 
                 {/* Audience Retention Chart - BigQuery Data */}
@@ -511,9 +533,7 @@ const VideoAnalytics = () => {
                   mb: 3,
                   p: 2
                 }}>
-
-
-                  {(videoData.retentionData && videoData.retentionData.length > 0) || true ? (
+                  {videoData.views > 0 && ((videoData.retentionData && videoData.retentionData.length > 0) || videoData.duration) ? (
                     <ResponsiveContainer width="100%" height="85%">
                       <LineChart data={videoData.retentionData && videoData.retentionData.length > 0 ? videoData.retentionData : generateFallbackRetentionData(videoData)} margin={{ top: 5, right: 30, left: 20, bottom: 60 }}>
                         <CartesianGrid strokeDasharray="3,3" stroke="#333" />
@@ -617,12 +637,8 @@ const VideoAnalytics = () => {
                       flexDirection: 'column',
                       gap: 2
                     }}>
-                      <CircularProgress size={40} sx={{ color: '#ffb300' }} />
                       <Typography variant="body1" sx={{ color: '#888' }}>
-                        Loading audience retention data...
-                      </Typography>
-                      <Typography variant="body2" sx={{ color: '#666' }}>
-                        Duration: {videoData.duration} | Avg View: {videoData.avgViewDuration}
+                        No data yet
                       </Typography>
                     </Box>
                   )}
