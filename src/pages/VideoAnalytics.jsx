@@ -277,9 +277,9 @@ const VideoAnalytics = () => {
             }}
           >
             <Tab label="Overview" />
-            <Tab label="Reach" />
+           
             <Tab label="Engagement" />
-            <Tab label="Audience" />
+            
           </Tabs>
 
           {/* Date Range Filter */}
@@ -915,7 +915,7 @@ const VideoAnalytics = () => {
         )}
 
         {/* Reach Tab */}
-        {tabValue === 1 && (
+        {tabValue === 2 && (
           <Card sx={{ bgcolor: '#2A2A2A', border: '1px solid #333', mb: 4, borderRadius: 2 }}>
             <CardContent sx={{ p: 4 }}>
               <Typography variant="h5" sx={{ color: 'white', fontWeight: 600, mb: 4 }}>
@@ -951,7 +951,7 @@ const VideoAnalytics = () => {
         )}
 
         {/* Engagement Tab */}
-        {tabValue === 2 && (
+        {tabValue === 1 && (
           <Card sx={{ bgcolor: '#2A2A2A', border: '1px solid #333', mb: 4, borderRadius: 2 }}>
             <CardContent sx={{ p: 4 }}>
               <Typography variant="h5" sx={{ color: 'white', fontWeight: 600, mb: 4 }}>
@@ -988,10 +988,7 @@ const VideoAnalytics = () => {
                 </Box>
               </Box>
 
-              <Typography variant="body1" sx={{ color: '#888' }}>
-                Your engagement rate of {calculateEngagement(videoData.likes, videoData.views)}% is
-                {parseFloat(calculateEngagement(videoData.likes, videoData.views)) > 3 ? ' above' : ' below'} average for {videoData.isShort ? 'Shorts' : 'long-form videos'}.
-              </Typography>
+             
             </CardContent>
           </Card>
         )}
