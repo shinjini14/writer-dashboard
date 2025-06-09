@@ -49,6 +49,10 @@ const Analytics = () => {
   const [dateRange, setDateRange] = useState('last30days');
   const [tabValue, setTabValue] = useState(0);
   const [contentFilter, setContentFilter] = useState('all'); // 'all', 'content', 'shorts'
+  const [customStartDate, setCustomStartDate] = useState("");
+  const [customEndDate, setCustomEndDate] = useState("");
+  const [showCustomDatePicker, setShowCustomDatePicker] = useState(false);
+  const [isChartLoading, setIsChartLoading] = useState(false);
 
   const dateRangeOptions = [
     { value: 'last7days', label: 'Last 7 days' },
@@ -66,7 +70,7 @@ const Analytics = () => {
 
   const fetchAnalytics = async () => {
     console.log('🔥 fetchAnalytics function called with dateRange:', dateRange);
-    setLoading(true);
+    setIsChartLoading(true);
     setError(null);
 
     try {
@@ -94,7 +98,24 @@ const Analytics = () => {
       // Add strong cache-busting parameters to force fresh data
       const cacheBuster = Date.now();
       const randomId = Math.random().toString(36).substring(7);
-      const overviewResponse = await fetch(`${buildApiUrl(API_CONFIG.ENDPOINTS.ANALYTICS.OVERVIEW)}?range=${dateRange}&_t=${cacheBuster}&_r=${randomId}&force_refresh=true`, {
+
+      // Build URL with proper parameters for custom date ranges
+      let apiUrl = `${buildApiUrl(API_CONFIG.ENDPOINTS.ANALYTICS.OVERVIEW)}?range=${dateRange}&_t=${cacheBuster}&_r=${randomId}&force_refresh=true`;
+
+      // If it's a custom date range, extract and add start_date and end_date parameters
+      if (dateRange.startsWith('custom_')) {
+        const parts = dateRange.split('_');
+        if (parts.length === 3) {
+          const startDate = parts[1];
+          const endDate = parts[2];
+          apiUrl += `&start_date=${startDate}&end_date=${endDate}`;
+          console.log(`📅 Adding custom date parameters: start_date=${startDate}, end_date=${endDate}`);
+        }
+      }
+
+      console.log(`📊 Fetching from URL: ${apiUrl}`);
+
+      const overviewResponse = await fetch(apiUrl, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
@@ -227,6 +248,7 @@ const Analytics = () => {
       setError(`Failed to load analytics data: ${err.message}`);
     } finally {
       setLoading(false);
+      setIsChartLoading(false);
     }
   };
 
@@ -363,7 +385,9 @@ const Analytics = () => {
 
   useEffect(() => {
     console.log('🚀 Analytics useEffect triggered, dateRange:', dateRange);
-    fetchAnalytics();
+    if (dateRange !== "custom") {
+      fetchAnalytics();
+    }
   }, [dateRange]);
 
   const formatNumber = (num) => {
@@ -380,6 +404,25 @@ const Analytics = () => {
 
 
   const getDateRangeLabel = () => {
+    // Handle custom date ranges
+    if (dateRange.startsWith('custom_')) {
+      const parts = dateRange.split('_');
+      if (parts.length === 3) {
+        const startDate = parts[1];
+        const endDate = parts[2];
+        // Format dates nicely
+        const formatDate = (dateStr) => {
+          const date = new Date(dateStr);
+          return date.toLocaleDateString('en-US', {
+            month: 'short',
+            day: 'numeric',
+            year: 'numeric'
+          });
+        };
+        return `custom period (${formatDate(startDate)} - ${formatDate(endDate)})`;
+      }
+    }
+
     const option = dateRangeOptions.find(opt => opt.value === dateRange);
     return option ? option.label.toLowerCase() : dateRange;
   };
@@ -395,6 +438,41 @@ const Analytics = () => {
         ...prev,
         topVideos: newTopContent
       }));
+    }
+  };
+
+  // Handle date range change
+  const handleDateRangeChange = (event) => {
+    const value = event.target.value;
+
+    if (value === "custom") {
+      setShowCustomDatePicker(true);
+      // Don't change dateRange yet, wait for user to apply custom dates
+    } else {
+      setShowCustomDatePicker(false);
+      setIsChartLoading(true);
+      setDateRange(value);
+    }
+  };
+
+  // Handle custom date range application
+  const handleApplyCustomRange = async () => {
+    if (customStartDate && customEndDate) {
+      // Set a special range value to indicate custom dates
+      const customRange = `custom_${customStartDate}_${customEndDate}`;
+      setDateRange(customRange);
+      setShowCustomDatePicker(false);
+      setIsChartLoading(true);
+
+      // Manually trigger data fetch for custom range
+      try {
+        await fetchAnalytics();
+      } catch (error) {
+        console.error("Error fetching data for custom range:", error);
+        setError("Failed to load data for custom date range");
+      } finally {
+        setIsChartLoading(false);
+      }
     }
   };
 
@@ -453,7 +531,7 @@ const Analytics = () => {
             <FormControl size="small" sx={{ minWidth: 150 }}>
               <Select
                 value={dateRange}
-                onChange={(e) => setDateRange(e.target.value)}
+                onChange={handleDateRangeChange}
                 sx={{
                   bgcolor: '#2A2A2A',
                   color: 'white',
@@ -493,6 +571,79 @@ const Analytics = () => {
             </Tooltip>
           </Box>
         </Box>
+
+        {/* Custom Date Range Picker */}
+        {showCustomDatePicker && (
+          <Box sx={{ mb: 4, p: 3, bgcolor: "#2A2A2A", borderRadius: 2, border: "1px solid #444" }}>
+            <Typography variant="h6" sx={{ color: "white", mb: 2 }}>
+              Select Custom Date Range
+            </Typography>
+            <Box sx={{ display: "flex", gap: 2, alignItems: "center", flexWrap: "wrap" }}>
+              <Box>
+                <Typography variant="body2" sx={{ color: "#888", mb: 1 }}>
+                  Start Date
+                </Typography>
+                <input
+                  type="date"
+                  value={customStartDate}
+                  onChange={(e) => setCustomStartDate(e.target.value)}
+                  style={{
+                    backgroundColor: "#333",
+                    border: "1px solid #444",
+                    borderRadius: "4px",
+                    color: "white",
+                    padding: "8px 12px",
+                    fontSize: "14px",
+                  }}
+                />
+              </Box>
+              <Box>
+                <Typography variant="body2" sx={{ color: "#888", mb: 1 }}>
+                  End Date
+                </Typography>
+                <input
+                  type="date"
+                  value={customEndDate}
+                  onChange={(e) => setCustomEndDate(e.target.value)}
+                  style={{
+                    backgroundColor: "#333",
+                    border: "1px solid #444",
+                    borderRadius: "4px",
+                    color: "white",
+                    padding: "8px 12px",
+                    fontSize: "14px",
+                  }}
+                />
+              </Box>
+              <Box sx={{ display: "flex", gap: 1, mt: 2 }}>
+                <Button
+                  variant="contained"
+                  onClick={handleApplyCustomRange}
+                  disabled={!customStartDate || !customEndDate}
+                  sx={{
+                    bgcolor: "#ffb300",
+                    color: "black",
+                    "&:hover": { bgcolor: "#e6a000" },
+                    "&:disabled": { bgcolor: "#666", color: "#999" },
+                  }}
+                >
+                  Apply
+                </Button>
+                <Button
+                  variant="outlined"
+                  onClick={() => setShowCustomDatePicker(false)}
+                  sx={{
+                    color: "#888",
+                    borderColor: "#444",
+                    "&:hover": { borderColor: "#666" },
+                  }}
+                >
+                  Cancel
+                </Button>
+              </Box>
+            </Box>
+          </Box>
+        )}
 
         {error && (
           <Alert
@@ -698,9 +849,36 @@ const Analytics = () => {
                 '@media (max-width: 1200px)': {
                   flex: '1 1 100%',
                   minWidth: 'auto'
-                }
+                },
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center'
               }}>
-                <ReactECharts
+                {isChartLoading ? (
+                  <Box sx={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: 2
+                  }}>
+                    <Box sx={{
+                      width: 40,
+                      height: 40,
+                      border: '4px solid #333',
+                      borderTop: '4px solid #4fc3f7',
+                      borderRadius: '50%',
+                      animation: 'spin 1s linear infinite',
+                      '@keyframes spin': {
+                        '0%': { transform: 'rotate(0deg)' },
+                        '100%': { transform: 'rotate(360deg)' }
+                      }
+                    }} />
+                    <Typography variant="body1" sx={{ color: '#888' }}>
+                      Updating chart data...
+                    </Typography>
+                  </Box>
+                ) : (
+                  <ReactECharts
                   option={{
                     tooltip: {
                       trigger: 'axis',
@@ -816,6 +994,7 @@ const Analytics = () => {
                   }}
                   style={{ height: '100%', width: '100%' }}
                 />
+                )}
               </Box>
 
               {/* Realtime Hourly Views Bar Chart */}

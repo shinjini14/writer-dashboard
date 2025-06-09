@@ -312,7 +312,7 @@ app.post("/api/scripts", async (req, res) => {
       // In production, use the actual domain; in development, use localhost
       const serverUrl = process.env.SERVER_URL ||
         (process.env.NODE_ENV === 'production'
-          ? `https://${process.env.VERCEL_URL || 'your-app.vercel.app'}`
+          ? `https://${process.env.VERCEL_URL || 'https://writer-dashboard-1t76.vercel.app'}`
           : `http://localhost:${PORT}`);
 
       console.log(`Making internal API call to: ${serverUrl}/api/getPostingAccount`);
@@ -1367,16 +1367,19 @@ async function getBigQueryAudienceRetention(videoId, writerId) {
     // Query 1: audience_retention_historical for graph data
     const retentionQuery = `
       SELECT
-        elapsed_video_time_ratio,
-        audience_watch_ratio,
-        relative_retention_performance,
-        account_id,
-        video_id,
-        date
-      FROM \`${projectId}.${dataset}.audience_retention_historical\`
-      WHERE video_id = @video_id
-        AND writer_id = @writer_id
-      ORDER BY elapsed_video_time_ratio ASC
+      elapsed_video_time_ratio,
+       audience_watch_ratio,
+       relative_retention_performance,
+       account_id,
+       writer_id,
+       account_name,
+       writer_name,
+       snapshot_date,
+       retention_snapshot_id
+     FROM \`${projectId}.${dataset}.audience_retention_historical\`
+     WHERE video_id = @video_id
+       AND writer_id = @writer_id
+     ORDER BY elapsed_video_time_ratio ASC
     `;
 
     console.log(`🔍 Querying retention graph data for video ${videoId}, writer ${writerId}`);
@@ -1484,12 +1487,51 @@ async function getBigQueryAudienceRetention(videoId, writerId) {
     const avgRetention = retentionData.reduce((sum, point) => sum + point.percentage, 0) / retentionData.length;
 
     // "Stayed to watch" - retention at around 30% through the video
-    const stayedToWatch = retentionData.length > 0 ? retentionData[Math.floor(retentionData.length * 0.3)]?.percentage || 0 : 0;
+   // 1) Compute stayedToWatch from the retention curve
+let stayedToWatch = 0;
+if (retentionRows.length) {
+  // find the point closest to 50% of the video
+  const midPoint = retentionRows.reduce((best, row) => {
+    const ratio = parseFloat(row.elapsed_video_time_ratio);
+    const watch = parseFloat(row.audience_watch_ratio);
+    const dist  = Math.abs(ratio - 0.5);
+    if (dist < best.dist) {
+      return { dist, watch };
+    }
+    return best;
+  }, { dist: 1, watch: 0 });
+
+  stayedToWatch = Math.round(midPoint.watch * 100);
+}
+
+
+// 1b) new “global” metrics:
+const totalWatchTime = durationRows[0]?.watch_time_minutes  || 0;
+const avgViewPct     = Math.round((durationRows[0]?.average_view_duration_percentage || 0) * 100) / 100;
+
+// 1c) average audience_watch_ratio & relative_retention_performance across the curve:
+const avgAudienceWatchRatio = Math.round(
+  retentionRows.reduce((sum, r) => sum + parseFloat(r.audience_watch_ratio), 0)
+  / retentionRows.length
+  * 100
+);
+const avgRelRetentionPerf = Math.round(
+  retentionRows.reduce((sum, r) => sum + parseFloat(r.relative_retention_performance), 0)
+  / retentionRows.length
+  * 100
+);
+
+// 1d) find drop-off points (local minima) & key-moments (your existing isKeyMoment marker)
+const dropOffPoints = retentionData.filter((pt, i, arr) => {
+  if (!arr[i-1] || !arr[i+1]) return false;
+  return pt.percentage < arr[i-1].percentage && pt.percentage < arr[i+1].percentage;
+});
+const keyMomentMarkers = retentionData.filter(pt => pt.isKeyMoment);
 
     // Calculate average view duration using BigQuery metrics
     // Method 1: Find where retention drops to 50% (common metric)
     // Method 2: Calculate weighted average based on retention curve
-    let avgViewDuration = "0:00";
+ //   let avgViewDuration = "0:00";
     if (retentionData.length > 0) {
       // Calculate weighted average view duration from retention curve
       let totalWeightedTime = 0;
@@ -1552,10 +1594,12 @@ async function getBigQueryAudienceRetention(videoId, writerId) {
     return {
       retentionData,
       accountName,
-      metrics: {
-        stayedToWatch: Math.round(stayedToWatch),
-        avgRetention: Math.round(avgRetention),
-        avgViewDuration: avgViewDurationFromReport
+        metrics: {
+     
+stayedToWatch,                // e.g. 50
+      avgAudienceWatchRatio,        // e.g. 62  (%)    avgRelRetentionPerf,          // e.g. 85  (%)
+      totalWatchTime,               // e.g. 152.3 (minutes)
+      avgViewPct,                   // e.g. 42.7 (%)
       },
       // Additional metrics from youtube_video_report_historical for retention section display
       durationMetrics: {
@@ -1564,7 +1608,9 @@ async function getBigQueryAudienceRetention(videoId, writerId) {
         averageViewDurationSeconds: averageViewDurationSeconds,
         averageViewDurationPercentage: averageViewDurationPercentage,
         avgViewDurationFormatted: avgViewDurationFromReport
-      }
+      },
+      dropOffPoints,                   // [{ time, percentage }, …]
+      keyMomentMarkers, 
     };
 
   } catch (error) {
@@ -1743,6 +1789,61 @@ async function getBigQueryVideoAnalytics(videoId, writerId, range = 'lifetime') 
       // Use the data from youtube_video_report_historical without throwing error
     }
 
+    // Calculate real viewsIncrease using BigQuery data (no random values)
+    let viewsIncrease = 0;
+    try {
+      if (global.bigqueryClient && videoUrl) {
+        // Extract YouTube video ID from URL
+        const youtubeVideoId = extractVideoId(videoUrl);
+        if (youtubeVideoId) {
+          // Get writer name for BigQuery query
+          const writerQuery = `SELECT name FROM writer WHERE id = $1`;
+          const { rows: writerRows } = await pool.query(writerQuery, [parseInt(writerId)]);
+          const writerName = writerRows[0]?.name;
+
+          if (writerName) {
+            const projectId = process.env.BIGQUERY_PROJECT_ID || "speedy-web-461014-g3";
+            const dataset = "dbt_youtube_analytics";
+
+            // 1️⃣ Get the writer's historic average views (excluding this video)
+            // Only include videos from last 6 months with at least 1000 views for better average
+            const avgViewsQuery = `
+              SELECT
+                AVG(views) AS avg_views,
+                COUNT(*) AS video_count,
+                MIN(views) AS min_views,
+                MAX(views) AS max_views
+              FROM \`${projectId}.${dataset}.youtube_video_report_historical\`
+              WHERE writer_name = @writer_name
+                AND video_id != @video_id
+                AND views >= 1000
+                AND DATE(est_date) >= DATE_SUB(CURRENT_DATE(), INTERVAL 6 MONTH)
+            `;
+            const [avgRows] = await global.bigqueryClient.query({
+              query: avgViewsQuery,
+              params: {
+                writer_name: writerName,
+                video_id: youtubeVideoId
+              }
+            });
+            const avgViews = avgRows[0]?.avg_views || 0;
+            const videoCount = avgRows[0]?.video_count || 0;
+
+            // 2️⃣ Compute percent increase vs. average
+            const thisViews = parseInt(video.views || 0);
+            if (avgViews > 0 && videoCount >= 5) { // Need at least 5 videos for meaningful average
+              viewsIncrease = Math.round(((thisViews - avgViews) / avgViews) * 100);
+            }
+
+            console.log(`📊 BigQuery ViewsIncrease calculation: ${thisViews} views vs ${Math.round(avgViews)} avg (${videoCount} videos) = ${viewsIncrease}%`);
+          }
+        }
+      }
+    } catch (viewsIncreaseError) {
+      console.error('⚠️ BigQuery path: Error calculating viewsIncrease, using 0:', viewsIncreaseError);
+      viewsIncrease = 0;
+    }
+
     // Return BigQuery data for enhancement, but let PostgreSQL/InfluxDB handle views and chart data
     const videoData = {
       id: videoId,
@@ -1765,7 +1866,16 @@ async function getBigQueryVideoAnalytics(videoId, writerId, range = 'lifetime') 
       watchTimeMinutes: video.watch_time_minutes,
       videoDurationSeconds: video.video_duration_seconds,
       isShort: duration && duration.split(':')[0] === '0' && parseInt(duration.split(':')[1]) < 180,
-      retentionRate: stayedToWatch || Math.floor(Math.random() * 30) + 60,
+      retentionRate: stayedToWatch,
+      viewsIncrease: viewsIncrease,
+      // Add metrics object for frontend compatibility
+      metrics: {
+        retentionRate: stayedToWatch,
+        avgViewDurationPercentage: video.average_view_duration_percentage,
+        watchTimeMinutes: video.watch_time_minutes,
+        avgViewDuration: video.average_view_duration,
+        avgViewDurationSeconds: video.average_view_duration_seconds
+      },
       // High-quality thumbnails from BigQuery
       preview: video.high_thumbnail_url || video.medium_thumbnail_url || video.default_thumbnail_url || `https://img.youtube.com/vi/${youtubeVideoId}/maxresdefault.jpg`,
       highThumbnail: video.high_thumbnail_url,
@@ -1791,10 +1901,12 @@ async function getBigQueryVideoAnalytics(videoId, writerId, range = 'lifetime') 
   }
 }
 
+
+
 // Individual video data endpoint for VideoAnalytics page
 app.get("/api/video/:id", async (req, res) => {
   const { id } = req.params;
-  const { writer_id, range = "lifetime" } = req.query;
+  const { writer_id, range = "lifetime", start_date, end_date } = req.query;
 
   if (!id) {
     return res.status(400).json({ error: "missing video id" });
@@ -1855,7 +1967,7 @@ app.get("/api/video/:id", async (req, res) => {
 
         // Get additional metrics from InfluxDB
         const totalData = await getVideoTotalData(influxVideo.url || '');
-        const chartData = await getVideoLineChartData(influxVideo.url || '', range || '7d');
+        const chartData = await getVideoLineChartData(influxVideo.url || '', range || '7', start_date, end_date);
 
         // Get actual duration from PostgreSQL statistics_youtube_api table
         const durationQuery = `
@@ -1872,7 +1984,7 @@ app.get("/api/video/:id", async (req, res) => {
         }
         // Get real audience retention data from BigQuery - PRIMARY SOURCE
         let retentionData = [];
-        let avgViewDuration = generateRandomDuration(Math.floor(Math.random() * 60) + 30);
+        let avgViewDuration =0;
         let stayedToWatch = 0;
         let accountName = 'Unknown Account';
 
@@ -1916,6 +2028,61 @@ app.get("/api/video/:id", async (req, res) => {
           throw new Error(`No audience retention data available in BigQuery for video ${id}`);
         }
 
+        // Calculate real viewsIncrease using BigQuery data (no random values)
+        let viewsIncrease = 0;
+        try {
+          if (global.bigqueryClient && influxVideo.url) {
+            // Extract YouTube video ID from URL
+            const youtubeVideoId = extractVideoId(influxVideo.url);
+            if (youtubeVideoId) {
+              // Get writer name for BigQuery query
+              const writerQuery = `SELECT name FROM writer WHERE id = $1`;
+              const { rows: writerRows } = await pool.query(writerQuery, [parseInt(writer_id)]);
+              const writerName = writerRows[0]?.name;
+
+              if (writerName) {
+                const projectId = process.env.BIGQUERY_PROJECT_ID || "speedy-web-461014-g3";
+                const dataset = "dbt_youtube_analytics";
+
+                // 1️⃣ Get the writer’s historic average views (excluding this video)
+                // Only include videos from last 6 months with at least 1000 views for better average
+                const avgViewsQuery = `
+                  SELECT
+                    AVG(views) AS avg_views,
+                    COUNT(*) AS video_count,
+                    MIN(views) AS min_views,
+                    MAX(views) AS max_views
+                  FROM \`${projectId}.${dataset}.youtube_video_report_historical\`
+                  WHERE writer_name = @writer_name
+                    AND video_id != @video_id
+                    AND views >= 1000
+                    AND DATE(est_date) >= DATE_SUB(CURRENT_DATE(), INTERVAL 6 MONTH)
+                `;
+                const [avgRows] = await global.bigqueryClient.query({
+                  query: avgViewsQuery,
+                  params: {
+                    writer_name: writerName,
+                    video_id: youtubeVideoId
+                  }
+                });
+                const avgViews = avgRows[0]?.avg_views || 0;
+                const videoCount = avgRows[0]?.video_count || 0;
+
+                // 2️⃣ Compute percent increase vs. average
+                const thisViews = totalData.views || influxVideo._value || 0;
+                if (avgViews > 0 && videoCount >= 5) { // Need at least 5 videos for meaningful average
+                  viewsIncrease = Math.round(((thisViews - avgViews) / avgViews) * 100);
+                }
+
+                console.log(`📊 InfluxDB ViewsIncrease calculation: ${thisViews} views vs ${Math.round(avgViews)} avg (${videoCount} videos) = ${viewsIncrease}%`);
+              }
+            }
+          }
+        } catch (viewsIncreaseError) {
+          console.error('⚠️ InfluxDB path: Error calculating viewsIncrease, using 0:', viewsIncreaseError);
+          viewsIncrease = 0;
+        }
+
         // Merge InfluxDB views data with BigQuery enhanced data if available
         const videoData = {
           id: id,
@@ -1925,6 +2092,7 @@ app.get("/api/video/:id", async (req, res) => {
           url: bigQueryData?.url || influxVideo.url || '',
           // Views from InfluxDB (original source)
           views: totalData.views || influxVideo._value || 0,
+          
           // Engagement from BigQuery if available, otherwise InfluxDB
           likes: bigQueryData?.likes || totalData.likes || 0,
           comments: bigQueryData?.comments || totalData.comments || 0,
@@ -1934,14 +2102,22 @@ app.get("/api/video/:id", async (req, res) => {
           subscribersLost: bigQueryData?.subscribersLost || 0,
           // Duration and retention from BigQuery if available
           duration: bigQueryData?.duration || duration,
-          avgViewDuration: bigQueryData?.avgViewDuration || avgViewDuration,
+          avgViewDuration: bigQueryData?.avgViewDuration,
           avgViewDurationSeconds: bigQueryData?.avgViewDurationSeconds,
           avgViewDurationPercentage: bigQueryData?.avgViewDurationPercentage,
           watchTimeMinutes: bigQueryData?.watchTimeMinutes,
           videoDurationSeconds: bigQueryData?.videoDurationSeconds,
           isShort: bigQueryData?.isShort !== undefined ? bigQueryData.isShort : (getVideoType(influxVideo.url) === 'short'),
-          viewsIncrease: Math.floor(Math.random() * 50) + 10,
-          retentionRate: bigQueryData?.retentionRate || stayedToWatch || Math.floor(Math.random() * 30) + 60,
+          viewsIncrease: viewsIncrease,
+          retentionRate: bigQueryData?.retentionRate || stayedToWatch,
+          // Add metrics object for frontend compatibility
+          metrics: {
+            retentionRate: bigQueryData?.retentionRate || stayedToWatch,
+            avgViewDurationPercentage: bigQueryData?.avgViewDurationPercentage,
+            watchTimeMinutes: bigQueryData?.watchTimeMinutes,
+            avgViewDuration: bigQueryData?.avgViewDuration,
+            avgViewDurationSeconds: bigQueryData?.avgViewDurationSeconds
+          },
           // Thumbnails from BigQuery if available, otherwise InfluxDB
           preview: bigQueryData?.preview || influxVideo.preview || (influxVideo.url ? `https://img.youtube.com/vi/${extractVideoId(influxVideo.url)}/maxresdefault.jpg` : ""),
           highThumbnail: bigQueryData?.highThumbnail,
@@ -2128,12 +2304,12 @@ app.get("/api/video/:id", async (req, res) => {
 
       // Generate chart data for individual video (using mock data for now)
       // Individual videos use mock chart data, not BigQuery
-      const chartData = generateMockViewsChartData(video.views_total || 0);
+      const chartData = generateMockViewsChartData(video.views_total || 0, range);
 
       // Try to get real audience retention data from BigQuery, fallback to mock if not available
-      let retentionData = generateRetentionData(fallbackDuration);
-      let avgViewDuration = generateAverageViewDuration(fallbackDuration);
-      let stayedToWatch = Math.floor(Math.random() * 30) + 70;
+      let retentionData = 0;
+      let avgViewDuration = 0;
+      let stayedToWatch = 0;
       let accountName = 'Unknown Account';
 
       try {
@@ -2176,6 +2352,61 @@ app.get("/api/video/:id", async (req, res) => {
         console.error('⚠️ PostgreSQL path: Error getting retention data, using fallback:', retentionError);
       }
 
+      // Calculate real viewsIncrease using BigQuery data (no random values)
+      let viewsIncrease = 0;
+      try {
+        if (global.bigqueryClient && video.url) {
+          // Extract YouTube video ID from URL
+          const youtubeVideoId = extractVideoId(video.url);
+          if (youtubeVideoId) {
+            // Get writer name for BigQuery query
+            const writerQuery = `SELECT name FROM writer WHERE id = $1`;
+            const { rows: writerRows } = await pool.query(writerQuery, [parseInt(video.writer_id)]);
+            const writerName = writerRows[0]?.name;
+
+            if (writerName) {
+              const projectId = process.env.BIGQUERY_PROJECT_ID || "speedy-web-461014-g3";
+              const dataset = "dbt_youtube_analytics";
+
+              // 1️⃣ Get the writer's historic average views (excluding this video)
+              // Only include videos from last 6 months with at least 1000 views for better average
+              const avgViewsQuery = `
+                SELECT
+                  AVG(views) AS avg_views,
+                  COUNT(*) AS video_count,
+                  MIN(views) AS min_views,
+                  MAX(views) AS max_views
+                FROM \`${projectId}.${dataset}.youtube_video_report_historical\`
+                WHERE writer_name = @writer_name
+                  AND video_id != @video_id
+                  AND views >= 1000
+                  AND DATE(est_date) >= DATE_SUB(CURRENT_DATE(), INTERVAL 6 MONTH)
+              `;
+              const [avgRows] = await global.bigqueryClient.query({
+                query: avgViewsQuery,
+                params: {
+                  writer_name: writerName,
+                  video_id: youtubeVideoId
+                }
+              });
+              const avgViews = avgRows[0]?.avg_views || 0;
+              const videoCount = avgRows[0]?.video_count || 0;
+
+              // 2️⃣ Compute percent increase vs. average
+              const thisViews = video.views_total || 0;
+              if (avgViews > 0 && videoCount >= 5) { // Need at least 5 videos for meaningful average
+                viewsIncrease = Math.round(((thisViews - avgViews) / avgViews) * 100);
+              }
+
+              console.log(`📊 PostgreSQL ViewsIncrease calculation: ${thisViews} views vs ${Math.round(avgViews)} avg (${videoCount} videos) = ${viewsIncrease}%`);
+            }
+          }
+        }
+      } catch (viewsIncreaseError) {
+        console.error('⚠️ Error calculating viewsIncrease, using 0:', viewsIncreaseError);
+        viewsIncrease = 0;
+      }
+
       // Merge PostgreSQL views data with BigQuery enhanced data if available
       const videoData = {
         id: video.id,
@@ -2189,7 +2420,7 @@ app.get("/api/video/:id", async (req, res) => {
         duration: bigQueryData?.duration || fallbackDuration,
         // Views from PostgreSQL (original source)
         views: video.views_total || 0,
-        viewsIncrease: Math.floor(Math.random() * 50) + 20,
+        viewsIncrease: viewsIncrease,
         // Engagement from BigQuery if available, otherwise PostgreSQL
         likes: bigQueryData?.likes || video.likes_total || 0,
         comments: bigQueryData?.comments || video.comments_total || 0,
@@ -2199,11 +2430,19 @@ app.get("/api/video/:id", async (req, res) => {
         subscribersLost: bigQueryData?.subscribersLost || 0,
         // Retention data from BigQuery if available
         retentionRate: bigQueryData?.retentionRate || stayedToWatch,
-        avgViewDuration: bigQueryData?.avgViewDuration || avgViewDuration,
+        avgViewDuration: bigQueryData?.avgViewDuration,
         avgViewDurationSeconds: bigQueryData?.avgViewDurationSeconds,
         avgViewDurationPercentage: bigQueryData?.avgViewDurationPercentage,
         watchTimeMinutes: bigQueryData?.watchTimeMinutes,
         videoDurationSeconds: bigQueryData?.videoDurationSeconds,
+        // Add metrics object for frontend compatibility
+        metrics: {
+          retentionRate: bigQueryData?.retentionRate || stayedToWatch,
+          avgViewDurationPercentage: bigQueryData?.avgViewDurationPercentage,
+          watchTimeMinutes: bigQueryData?.watchTimeMinutes,
+          avgViewDuration: bigQueryData?.avgViewDuration,
+          avgViewDurationSeconds: bigQueryData?.avgViewDurationSeconds
+        },
         isShort: bigQueryData?.isShort !== undefined ? bigQueryData.isShort : isShort,
         publishDate: bigQueryData?.publishDate || formattedDate,
         posted_date: video.posted_date,
@@ -2254,39 +2493,78 @@ function generateAverageViewDuration(totalDuration) {
 }
 
 // Helper function to get video line chart data using your InfluxDB API
-async function getVideoLineChartData(url, timeRange = '7d') {
+async function getVideoLineChartData(url, timeRange = '7d', customStartDate = null, customEndDate = null) {
   if (!url) {
     console.log('⚠️ No URL provided for line chart data');
-    return generateMockViewsChartData(0);
+    return generateMockViewsChartData(0, timeRange);
   }
 
   try {
     console.log(`📈 Getting InfluxDB line chart data for URL: ${url}, Range: ${timeRange}`);
 
-    // Calculate date range
-    const endDate = new Date();
-    const startDate = new Date();
+    let influxRange;
+    let startDate, endDate;
 
-    if (timeRange === 'lifetime' || timeRange === '-5y') {
-      startDate.setFullYear(startDate.getFullYear() - 2); // 2 years for lifetime
+    // Handle custom date range
+    if (timeRange === 'custom' && customStartDate && customEndDate) {
+      startDate = new Date(customStartDate);
+      endDate = new Date(customEndDate);
+      console.log(`📈 Using custom date range: ${customStartDate} to ${customEndDate}`);
+
+      // For InfluxDB, we'll use the start date directly
+      influxRange = startDate.toISOString();
     } else {
-      const days = parseInt(timeRange.replace('-', '').replace('d', '')) || 7;
-      startDate.setDate(startDate.getDate() - days);
+      // Convert frontend range values to proper format
+      if (timeRange === 'lifetime') {
+        influxRange = '-2y'; // 2 years for lifetime
+      } else {
+        // Handle numeric values from frontend (7, 14, 28, 90, 365)
+        const days = parseInt(timeRange.toString().replace('d', '')) || 7;
+        influxRange = `-${days}d`;
+      }
+
+      console.log(`📈 Converted range '${timeRange}' to InfluxDB format '${influxRange}'`);
+
+      // Calculate date range for non-custom ranges
+      endDate = new Date();
+      startDate = new Date();
+
+      if (timeRange === 'lifetime') {
+        startDate.setFullYear(startDate.getFullYear() - 2); // 2 years for lifetime
+      } else {
+        const days = parseInt(timeRange.toString().replace('d', '')) || 7;
+        startDate.setDate(startDate.getDate() - days);
+      }
     }
 
-    // Use your existing line chart API internally (without problematic grouping)
-    console.log(`📈 Getting line chart data for URL: ${url}, Range: ${timeRange}`);
+    // Use InfluxDB range format for better performance
+    let query;
 
-    const query = `
-      from(bucket: "youtube_api")
-        |> range(start: ${startDate.toISOString()}, stop: ${endDate.toISOString()})
-        |> filter(fn: (r) => r._measurement == "views")
-        |> filter(fn: (r) => r._field == "views")
-        |> filter(fn: (r) => r.url == "${url}")
-        |> aggregateWindow(every: 1h, fn: last, createEmpty: false)
-        |> aggregateWindow(every: 1d, fn: last, createEmpty: false)
-        |> sort(columns: ["_time"], desc: false)
-    `;
+    if (timeRange === 'custom' && customStartDate && customEndDate) {
+      console.log(`📈 Getting line chart data for URL: ${url}, Custom Range: ${customStartDate} to ${customEndDate}`);
+      query = `
+        from(bucket: "youtube_api")
+          |> range(start: ${startDate.toISOString()}, stop: ${endDate.toISOString()})
+          |> filter(fn: (r) => r._measurement == "views")
+          |> filter(fn: (r) => r._field == "views")
+          |> filter(fn: (r) => r.url == "${url}")
+          |> aggregateWindow(every: 1h, fn: last, createEmpty: false)
+          |> aggregateWindow(every: 1d, fn: last, createEmpty: false)
+          |> sort(columns: ["_time"], desc: false)
+      `;
+    } else {
+      console.log(`📈 Getting line chart data for URL: ${url}, InfluxDB Range: ${influxRange}`);
+      query = `
+        from(bucket: "youtube_api")
+          |> range(start: ${influxRange})
+          |> filter(fn: (r) => r._measurement == "views")
+          |> filter(fn: (r) => r._field == "views")
+          |> filter(fn: (r) => r.url == "${url}")
+          |> aggregateWindow(every: 1h, fn: last, createEmpty: false)
+          |> aggregateWindow(every: 1d, fn: last, createEmpty: false)
+          |> sort(columns: ["_time"], desc: false)
+      `;
+    }
 
     const result = await queryInfluxDB(query);
     console.log(`📊 InfluxDB line chart query returned ${result.length} data points`);
@@ -2309,11 +2587,11 @@ async function getVideoLineChartData(url, timeRange = '7d') {
       return chartData;
     } else {
       console.log('⚠️ No InfluxDB line chart data found, using mock data');
-      return generateMockViewsChartData(0);
+      return generateMockViewsChartData(0, timeRange);
     }
   } catch (error) {
     console.error('❌ Error getting video line chart data:', error);
-    return generateMockViewsChartData(0);
+    return generateMockViewsChartData(0, timeRange);
   }
 }
 
@@ -2367,7 +2645,7 @@ async function getVideoTotalData(url) {
 // Helper function to generate views chart data from InfluxDB historical data
 async function getVideoHistoricalData(influxService, videoId, timeRange = '7d') {
   if (!influxService) {
-    return generateMockViewsChartData(0);
+    return generateMockViewsChartData(0, timeRange);
   }
 
   try {
@@ -2407,25 +2685,36 @@ async function getVideoHistoricalData(influxService, videoId, timeRange = '7d') 
     }));
   } catch (error) {
     console.error('❌ Error querying historical data:', error);
-    return generateMockViewsChartData(0);
+    return generateMockViewsChartData(0, timeRange);
   }
 }
 
 // Helper function to generate mock views chart data (fallback)
-function generateMockViewsChartData(totalViews) {
+function generateMockViewsChartData(totalViews, range = '7') {
   const data = [];
   let currentViews = 0;
   const today = new Date();
 
-  for (let day = 0; day <= 7; day++) {
+  // Determine number of days based on range
+  let days;
+  if (range === 'lifetime') {
+    days = 30; // Use 30 days for lifetime
+  } else {
+    days = parseInt(range.toString().replace('d', '')) || 7;
+  }
+
+  // Limit to reasonable number of data points for chart performance
+  days = Math.min(days, 90); // Max 90 days for chart
+
+  for (let day = 0; day <= days; day++) {
     // Simulate growth curve
-    const progress = day / 7;
+    const progress = day / days;
     const growthFactor = Math.pow(progress, 0.7); // Slower growth at start, faster later
     currentViews = Math.floor(totalViews * growthFactor);
 
     // Create date for each day
     const date = new Date(today);
-    date.setDate(date.getDate() - (7 - day));
+    date.setDate(date.getDate() - (days - day));
 
     data.push({
       day,
@@ -2610,14 +2899,14 @@ app.get("/api/video/:id/analytics", async (req, res) => {
     // Fallback to mock analytics data
     console.log('📝 Using mock analytics data for video:', id);
     const mockAnalytics = {
-      views: generateMockTimeSeriesData(range),
-      engagement: generateMockEngagementData(range),
+      views:0,
+      engagement: 0,
       summary: {
-        totalViews: 50000,
-        totalLikes: 2000,
-        totalComments: 150,
-        dateRange: range,
-        dataPoints: 7
+        totalViews: 0,
+        totalLikes: 0,
+        totalComments: 0,
+        dateRange: 0,
+        dataPoints: 0
       }
     };
 

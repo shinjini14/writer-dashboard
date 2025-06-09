@@ -767,10 +767,13 @@ async function getBigQueryAnalyticsOverview(
   writerId,
   range = '30d',
   writerName = null,
-  limit = 100
+  limit = 100,
+  customStartDate = null,
+  customEndDate = null
 ) {
   try {
     console.log(`📊 ANALYTICS OVERVIEW: writer=${writerId} (${writerName}), range=${range}, limit=${limit}`);
+    console.log(`📊 Custom dates: start=${customStartDate}, end=${customEndDate}`);
 
     // ———————————————— 1) Ensure BigQuery client ————————————————
     if (!bigquery) throw new Error('BigQuery client not initialized');
@@ -783,18 +786,28 @@ async function getBigQueryAnalyticsOverview(
     }
 
     // ———————————————— 3) Compute date window ————————————————
-    const endDate = new Date();
-    const startDate = new Date();
-    let days;
-    switch (range) {
-      case '7d':       days = 7;   break;
-      case 'lifetime': days = 365; break;
-      default:         days = 30;  break;
+    let finalStartDate, finalEndDate;
+
+    if (customStartDate && customEndDate) {
+      // Use custom date range
+      finalStartDate = customStartDate;
+      finalEndDate = customEndDate;
+      console.log(`📅 Using CUSTOM date range: ${finalStartDate} → ${finalEndDate}`);
+    } else {
+      // Use predefined range
+      const endDate = new Date();
+      const startDate = new Date();
+      let days;
+      switch (range) {
+        case '7d':       days = 7;   break;
+        case 'lifetime': days = 365; break;
+        default:         days = 30;  break;
+      }
+      startDate.setDate(endDate.getDate() - days);
+      finalStartDate = startDate.toISOString().slice(0, 10);
+      finalEndDate = endDate.toISOString().slice(0, 10);
+      console.log(`📅 Using PREDEFINED date range: ${finalStartDate} → ${finalEndDate}`);
     }
-    startDate.setDate(endDate.getDate() - days);
-    const finalStartDate = startDate.toISOString().slice(0, 10);
-    const finalEndDate   = endDate  .toISOString().slice(0, 10);
-    console.log(`📅 Date range: ${finalStartDate} → ${finalEndDate}`);
 
     // ———————————————— 4) QA: Raw Views from BigQuery ————————————————
     const rawViewsQuery = `
@@ -863,7 +876,7 @@ async function getBigQueryAnalyticsOverview(
     // ———————————————— 5) Find missing dates ————————————————
     const seenDates = new Set(rawViewsRows.map(r => r.est_date));
     const missingDates = [];
-    for (let d = new Date(finalStartDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+    for (let d = new Date(finalStartDate); d <= new Date(finalEndDate); d.setDate(d.getDate() + 1)) {
       const ds = d.toISOString().slice(0, 10);
       if (!seenDates.has(ds)) missingDates.push(ds);
     }
@@ -1605,7 +1618,28 @@ router.get('/', authenticateToken, async (req, res) => {
 async function handleAnalyticsRequest(req, res) {
   try {
     console.log('🔥 OVERVIEW ENDPOINT CALLED! Query params:', req.query);
-    let { range = '30d' } = req.query;
+    let { range = '30d', start_date, end_date } = req.query;
+
+    // Check if this is a custom date range
+    let customStartDate = null;
+    let customEndDate = null;
+
+    if (range.startsWith('custom_')) {
+      // Parse custom date range from format: custom_2025-06-03_2025-06-06
+      const parts = range.split('_');
+      if (parts.length === 3) {
+        customStartDate = parts[1];
+        customEndDate = parts[2];
+        range = 'custom';
+        console.log(`📅 Parsed custom date range: ${customStartDate} to ${customEndDate}`);
+      }
+    } else if (start_date && end_date) {
+      // Handle direct start_date and end_date parameters
+      customStartDate = start_date;
+      customEndDate = end_date;
+      range = 'custom';
+      console.log(`📅 Using direct custom date range: ${customStartDate} to ${customEndDate}`);
+    }
 
     // Enhanced frontend time ranges mapping with dynamic date calculation
     const timeRangeMap = {
@@ -1621,7 +1655,8 @@ async function handleAnalyticsRequest(req, res) {
       'march': 'march_march',
       '7d': '7d',
       '30d': '30d',
-      '90d': '90d'
+      '90d': '90d',
+      'custom': 'custom'
     };
 
     range = timeRangeMap[range] || '30d';
@@ -1653,14 +1688,22 @@ async function handleAnalyticsRequest(req, res) {
     if (writerId) {
       try {
         // Use BigQuery for analytics overview with writer name from PostgreSQL
-        const analyticsData = await getBigQueryAnalyticsOverview(writerId, range, writerName);
+        const analyticsData = await getBigQueryAnalyticsOverview(
+          writerId,
+          range,
+          writerName,
+          100,
+          customStartDate,
+          customEndDate
+        );
 
         console.log('📊 BigQuery analytics data sent:', {
           totalViews: analyticsData.totalViews,
           totalSubmissions: analyticsData.totalSubmissions,
           topVideosCount: analyticsData.topVideos?.length || 0,
           hasLatestContent: !!analyticsData.latestContent,
-          range: analyticsData.range
+          range: analyticsData.range,
+          customDateRange: customStartDate && customEndDate ? `${customStartDate} to ${customEndDate}` : null
         });
 
         res.json(analyticsData);
