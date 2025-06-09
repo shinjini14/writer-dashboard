@@ -70,7 +70,7 @@ const Content = () => {
       // Get writer ID from user context or localStorage
       const writerId = user?.writerId || localStorage.getItem('writerId') || '106';
 
-      console.log('🎬 Fetching content for writer:', writerId, 'Range:', dateRange);
+      console.log('🎬 Fetching content for writer:', writerId, 'Range:', dateRange, 'Type:', videoTypeFilter, 'Tab:', tabValue);
 
       // Try InfluxDB first, then PostgreSQL fallback
       let response;
@@ -143,7 +143,17 @@ const Content = () => {
         }
 
         setContentData(videos);
-        console.log('📺 Writer videos loaded:', videos.length, 'videos for writer', writerId, 'Page:', currentPage);
+        console.log('📺 Writer videos loaded:', videos.length, 'videos for writer', writerId, 'Page:', currentPage, 'Type filter:', videoTypeFilter, 'Tab:', tabValue);
+
+        // Debug: Log video types in the response
+        if (videos.length > 0) {
+          const typeBreakdown = videos.reduce((acc, video) => {
+            acc[video.type || 'unknown'] = (acc[video.type || 'unknown'] || 0) + 1;
+            return acc;
+          }, {});
+          console.log('🔍 Video type breakdown in response:', typeBreakdown);
+          console.log('🔍 Sample videos:', videos.slice(0, 3).map(v => ({ title: v.title, type: v.type, isShort: v.isShort, url: v.url })));
+        }
 
         // Debug: Log sample video data to see account names
         if (videos.length > 0) {
@@ -372,14 +382,17 @@ const Content = () => {
           <Tabs
             value={tabValue}
             onChange={(_, newValue) => {
+              console.log('🔄 Tab changed from', tabValue, 'to', newValue);
               setTabValue(newValue);
               setSelectedItems([]); // Reset selections when switching tabs
               // Update video type filter based on tab
               if (newValue === 0) {
+                console.log('🔄 Setting filter to: short');
                 setVideoTypeFilter('short'); // Shorts tab
               } else if (newValue === 1) {
+                console.log('🔄 Setting filter to: video');
                 setVideoTypeFilter('video'); // Videos tab
-              } 
+              }
               setCurrentPage(1); // Reset to first page when changing tabs
             }}
             sx={{

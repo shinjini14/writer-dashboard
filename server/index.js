@@ -116,6 +116,88 @@ app.use("/api/data-explorer", dataExplorerRoutes);
 // Route /api/writer/videos to BigQuery-powered analytics endpoint
 app.use("/api/writer", analyticsRoutes);
 
+// Quick debug endpoint for writer 130 videos (no auth required)
+app.get("/api/debug-writer-130", async (req, res) => {
+  try {
+    const writerId = 130;
+    console.log(`🔍 DEBUG: Checking video data for writer ${writerId}`);
+
+    if (!pool) {
+      return res.json({ error: "Database not available" });
+    }
+
+    // Check videos in video table
+    const videoTableQuery = `
+      SELECT id, script_title, url, video_cat, writer_id
+      FROM video
+      WHERE writer_id = $1
+        AND url LIKE '%youtube.com%'
+      ORDER BY id DESC
+      LIMIT 10
+    `;
+    const { rows: videoTableRows } = await pool.query(videoTableQuery, [writerId]);
+
+    // Check videos in statistics_youtube_api table
+    const statsTableQuery = `
+      SELECT video_id, duration, views_total, posted_date
+      FROM statistics_youtube_api
+      WHERE video_id IN (
+        SELECT CAST(id AS VARCHAR) FROM video WHERE writer_id = $1
+      )
+      ORDER BY video_id DESC
+      LIMIT 10
+    `;
+    const { rows: statsTableRows } = await pool.query(statsTableQuery, [writerId]);
+
+    // Check INNER JOIN result (what the current query returns)
+    const innerJoinQuery = `
+      SELECT v.id, v.script_title, v.url, s.duration, s.views_total
+      FROM video v
+      INNER JOIN statistics_youtube_api s ON CAST(v.id AS VARCHAR) = s.video_id
+      WHERE v.writer_id = $1
+        AND v.url LIKE '%youtube.com%'
+      ORDER BY v.id DESC
+      LIMIT 10
+    `;
+    const { rows: innerJoinRows } = await pool.query(innerJoinQuery, [writerId]);
+
+    res.json({
+      success: true,
+      writerId: writerId,
+      videoTable: {
+        count: videoTableRows.length,
+        videos: videoTableRows.map(v => ({
+          id: v.id,
+          title: v.script_title,
+          url: v.url?.substring(0, 60) + '...',
+          category: v.video_cat
+        }))
+      },
+      statisticsTable: {
+        count: statsTableRows.length,
+        videos: statsTableRows.map(s => ({
+          video_id: s.video_id,
+          duration: s.duration,
+          views: s.views_total
+        }))
+      },
+      innerJoinResult: {
+        count: innerJoinRows.length,
+        videos: innerJoinRows.map(v => ({
+          id: v.id,
+          title: v.script_title,
+          duration: v.duration,
+          views: v.views_total
+        }))
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Debug writer 130 error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // API endpoints for Dashboard.jsx
 app.get("/api/tropes", async (req, res) => {
   try {
@@ -1254,33 +1336,13 @@ app.get("/api/writer/analytics", async (req, res) => {
     return res.status(400).json({ error: "Missing writer_id" });
   }
 
-  // Query to get engagement data for non-YouTube URLs excluding 'full to short' category
-  const nonYoutubeQuery = `
-    SELECT
-      video.url,
-      video.script_title AS title,
-      statistics.posted_date,
-      statistics.preview,
-      COALESCE(statistics.views_total, 0) AS views_total,
-      COALESCE(statistics.likes_total, 0) AS likes_total,
-      COALESCE(statistics.comments_total, 0) AS comments_total,
-      video.id as video_id
-    FROM video
-    LEFT JOIN statistics ON video.id = statistics.video_id
-    WHERE video.writer_id = $1
-      AND video.url NOT LIKE '%youtube.com%'
-    
-    ORDER BY statistics.posted_date DESC;
-  `;
-
-  // Query to get YouTube video data excluding 'full to short' category
+  // Query to get ALL YouTube video data from statistics_youtube_api for the writer
   const youtubeQuery = `
     SELECT
       video.url,
       video.script_title AS title,
       statistics_youtube_api.posted_date,
       statistics_youtube_api.preview,
-      
       COALESCE(statistics_youtube_api.likes_total, 0) AS likes_total,
       COALESCE(statistics_youtube_api.comments_total, 0) AS comments_total,
       COALESCE(statistics_youtube_api.views_total, 0) AS views_total,
@@ -1290,7 +1352,7 @@ app.get("/api/writer/analytics", async (req, res) => {
         ON CAST(video.id AS VARCHAR) = statistics_youtube_api.video_id
     WHERE video.writer_id = $1
       AND video.url LIKE '%youtube.com%'
-  
+      AND statistics_youtube_api.video_id IS NOT NULL
     ORDER BY statistics_youtube_api.posted_date DESC;
   `;
 
@@ -1300,23 +1362,19 @@ app.get("/api/writer/analytics", async (req, res) => {
       const limitNum = parseInt(limit) || 20;
       const offset = (pageNum - 1) * limitNum;
 
-      // Get all data first, then paginate
-      const { rows: nonYoutubeRows } = await pool.query(nonYoutubeQuery, [
-        parseInt(writer_id),
-      ]);
-
+      // Get ALL YouTube videos from statistics_youtube_api for the writer
       const { rows: youtubeRows } = await pool.query(youtubeQuery, [
         parseInt(writer_id),
       ]);
 
-      const combinedData = [...nonYoutubeRows, ...youtubeRows];
+      console.log(`📊 Found ${youtubeRows.length} YouTube videos for writer ${writer_id}`);
 
       // Extract YouTube video IDs
       const youtubeVideoIds = youtubeRows
         .map((row) => extractVideoId(row.url))
         .filter((id) => !!id);
 
-      // Fetch writer name (reuse same query as in audience retention)
+      // Fetch writer name
       const writerQuery = `SELECT name FROM writer WHERE id = $1`;
       const { rows: writerRows } = await pool.query(writerQuery, [
         parseInt(writer_id),
@@ -1326,37 +1384,34 @@ app.get("/api/writer/analytics", async (req, res) => {
       }
       const writerName = writerRows[0].name;
 
-      // Fetch durations from BigQuery
+      // Fetch durations from BigQuery - ONLY source for video type determination
       const youtubeDurations = await getYouTubeDurationsFromBigQuery(
         youtubeVideoIds,
         writerName
       );
 
-      console.log("✅ YouTube duration map:", youtubeDurations);
+      console.log(`✅ BigQuery duration data for ${youtubeVideoIds.length} videos:`, youtubeDurations);
 
 
-      // Update filtering logic
-  let filteredData = combinedData;
+      // Apply filtering based on BigQuery duration data ONLY
+      let filteredData = youtubeRows; // Start with ALL YouTube videos
 
-  if (type === "short" || type === "video") {
-  filteredData = combinedData.filter((video) => {
-    const isYouTube = video.url?.includes("youtube.com");
-    const videoId = isYouTube ? extractVideoId(video.url) : null;
-    const duration = isYouTube ? youtubeDurations[videoId] : null;
+      if (type === "short" || type === "video") {
+        filteredData = youtubeRows.filter((video) => {
+          const videoId = extractVideoId(video.url);
+          const duration = youtubeDurations[videoId];
 
-    if (isYouTube) {
-      // Only apply duration check if we have valid YouTube duration
-      if (duration === undefined) {
-        console.log(`⚠️ Missing duration for video ID: ${videoId}`);
-        return false; // skip if we can't determine duration
+          // Only filter if we have BigQuery duration data
+          if (duration === undefined || duration === null) {
+            console.log(`⚠️ No BigQuery duration for video ID: ${videoId}, showing in all results`);
+            return true; // Show videos without BigQuery duration in all results
+          }
+
+          // Use 183 seconds threshold: < 183 = short, >= 183 = video
+          const isShort = duration > 0 && duration < 183;
+          return type === "short" ? isShort : !isShort;
+        });
       }
-      return type === "short" ? duration <= 180.5 : duration > 180.5;
-    } else {
-      // For non-YouTube videos, assume they are all "video"
-      return type === "video";
-    }
-  });
-}
 
 
       const totalVideos = filteredData.length;
@@ -1365,26 +1420,26 @@ app.get("/api/writer/analytics", async (req, res) => {
       // Apply pagination
       const paginatedData = filteredData.slice(offset, offset + limitNum);
 
-      // Transform for Content page format
+      // Transform for Content page format - show ALL videos
       const transformedData = paginatedData
         .map((video, index) => {
-          // Use actual duration from database - skip videos without duration
-          let duration = video.duration;
-          if (!duration) {
-            console.log(
-              `⚠️ Skipping video ${video.video_id} - no duration data available`
-            );
-            return null; // Skip videos without duration
-          }
           const videoId = extractVideoId(video.url);
-          let videoType = "unknown";
-          if (videoId && youtubeDurations[videoId] !== undefined) {
-            videoType = youtubeDurations[videoId] >   180.5 ? "video" : "short";
-          } else if (video.url && !video.url.includes("youtube.com")) {
-            videoType = "video"; // default for non-YouTube videos
+          const bigQueryDuration = youtubeDurations[videoId];
+
+          // Determine video type using ONLY BigQuery duration data
+          let videoType = "video"; // default
+          let formattedDuration = "Unknown";
+
+          if (bigQueryDuration !== undefined && bigQueryDuration !== null) {
+            // Use BigQuery duration (float seconds) for type determination
+            videoType = (bigQueryDuration > 0 && bigQueryDuration < 183) ? "short" : "video";
+            // Format duration for display
+            const minutes = Math.floor(bigQueryDuration / 60);
+            const seconds = Math.floor(bigQueryDuration % 60);
+            formattedDuration = `${minutes}:${seconds.toString().padStart(2, '0')}`;
           }
 
-          console.log(`🎯 Filtering video ${video.title}, YouTube ID: ${videoId}, Duration: ${duration}`);
+          console.log(`🎯 Video ${video.title}: BigQuery duration=${bigQueryDuration}s, type=${videoType}`);
 
 
           return {
@@ -1392,7 +1447,7 @@ app.get("/api/writer/analytics", async (req, res) => {
             url: video.url || "",
             title: video.title || "Untitled Video",
             writer_id: writer_id,
-            writer_name: "Writer",
+            writer_name: writerName,
             account_name: "Channel",
             preview:
               video.preview ||
@@ -1405,12 +1460,12 @@ app.get("/api/writer/analytics", async (req, res) => {
             likes: video.likes_total || 0,
             comments: video.comments_total || 0,
             posted_date: video.posted_date || new Date().toISOString(),
-            duration: duration,
-            type: videoType, // 'short' or 'video'
+            duration: formattedDuration, // Use formatted BigQuery duration
+            bigQueryDuration: bigQueryDuration, // Include raw BigQuery duration for debugging
+            type: videoType, // 'short' or 'video' based on BigQuery duration
             status: "Published",
           };
-        })
-        .filter((video) => video !== null); // Remove videos without duration
+        }); // Show ALL videos, don't filter any out
 
       console.log(
         `✅ PostgreSQL analytics: Found ${transformedData.length}/${totalVideos} videos for writer ${writer_id} (Page ${pageNum}/${totalPages})`
@@ -2100,7 +2155,7 @@ async function getBigQueryVideoAnalytics(
       isShort:
         duration &&
         duration.split(":")[0] === "0" &&
-        parseInt(duration.split(":")[1]) < 180,
+        parseInt(duration.split(":")[1]) < 183.5,
       retentionRate: stayedToWatch,
       viewsIncrease: viewsIncrease,
       // Add metrics object for frontend compatibility
