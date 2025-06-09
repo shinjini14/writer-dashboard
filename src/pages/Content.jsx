@@ -321,209 +321,7 @@ const Content = () => {
     return ((likes / views) * 100).toFixed(1);
   };
 
-  // Dummy data as fallback
-  const dummyShortsData = [
-    {
-      id: 1,
-      thumbnail: '🎯',
-      color: '#4CAF50',
-      duration: '2:41',
-      title: 'Have you ever made a joke at the moment decis...',
-      description: 'Have you ever made a joke at the moment decision that you regret? #redditstories Real story...',
-      account: 'AskRedditEdit',
-      date: 'May 24, 2025',
-      status: 'Published',
-      views: '1.9M',
-      likes: '97.8%',
-      comments: '64 likes'
-    },
-    {
-      id: 2,
-      thumbnail: '🎮',
-      color: '#2196F3',
-      duration: '1:11',
-      title: 'Nightingale, what\'s your "they didn\'t realize I co...',
-      description: 'Nightingale, what\'s your "they didn\'t realize I could understand them" moment? #redditstories Real...',
-      account: 'Requestedreads',
-      date: 'May 23, 2025',
-      status: 'Published',
-      views: '29.7K',
-      likes: '98.6%',
-      comments: '1,284 likes'
-    },
-    {
-      id: 3,
-      thumbnail: '💔',
-      color: '#E91E63',
-      duration: '0:52',
-      title: 'Girls, how did you learn that your father was a soc...',
-      description: 'Girls, how did you learn that your father was a sociopath? #redditstories Real story...',
-      account: 'Requestedreads',
-      date: 'May 22, 2025',
-      status: 'Published',
-      views: '56.5K',
-      likes: '98.2%',
-      comments: '1,807 likes'
-    },
-    {
-      id: 4,
-      thumbnail: '👶',
-      color: '#FF9800',
-      duration: '1:47',
-      title: 'Parents, do you actually have a favorite child?',
-      description: 'Parents, do you actually have a favorite child? #redditstories Real story, get with fake names so it...',
-      account: 'UnlimitedStories',
-      date: 'May 22, 2025',
-      status: 'Published',
-      views: '27.1K',
-      likes: '98.7%',
-      comments: '3,065 likes'
-    },
-    {
-      id: 5,
-      thumbnail: '📖',
-      color: '#9C27B0',
-      duration: '3:02',
-      title: 'What made you realize the villain of a story?',
-      description: 'What made you realize the villain of a story? #redditstories Real story, get with fake names so it...',
-      account: 'BrokenStories',
-      date: 'May 22, 2025',
-      status: 'Published',
-      views: '14.8K',
-      likes: '97.3%',
-      comments: '774 likes'
-    },
-    {
-      id: 6,
-      thumbnail: '❤️',
-      color: '#F44336',
-      duration: '1:09',
-      title: 'Parents, do you actually have a favorite child?',
-      description: 'Parents, do you actually have a favorite child? #redditstories Real story, get with fake names so it...',
-      account: 'Frontlinereads',
-      date: 'May 21, 2025',
-      status: 'Published',
-      views: '159.9K',
-      likes: '98.9%',
-      comments: '6,911 likes'
-    },
-    {
-      id: 7,
-      thumbnail: '💰',
-      color: '#FFC107',
-      duration: '1:44',
-      title: 'Did you ever think your dad didn\'t love you?',
-      description: 'Did you ever think your dad didn\'t love you? #redditstories Real story, get with fake names so it...',
-      account: 'Thumbs Up Stories',
-      date: 'May 21, 2025',
-      status: 'Published',
-      views: '15.1K',
-      likes: '99.2%',
-      comments: '1,143 likes'
-    }
-  ];
-
-  // Videos content data matching the second image
-  const videosData = [
-    {
-      id: 1,
-      thumbnail: '📰',
-      color: '#2E2E2E',
-      duration: '24:1',
-      title: '[FULL STORY] What made you realize that "open...',
-      description: 'What made you realize that "open marriage" was a bad idea? #redditstories Real story, get with fake names so it...',
-      account: 'AskRedditEdit',
-      date: 'May 24, 2025',
-      status: 'Published',
-      views: '1.9M',
-      likes: '97.8%',
-      comments: '64 likes'
-    },
-    {
-      id: 2,
-      thumbnail: '📝',
-      color: '#2E2E2E',
-      duration: '32:2',
-      title: '[FULL STORY] What\'s the most insane way some...',
-      description: 'What\'s the most insane way someone has tried to get you? #redditstories Real story, get with fake names so it...',
-      account: 'Requestedreads',
-      date: 'May 23, 2025',
-      status: 'Published',
-      views: '29.7K',
-      likes: '98.6%',
-      comments: '1,284 likes'
-    },
-    {
-      id: 3,
-      thumbnail: '📄',
-      color: '#2E2E2E',
-      duration: '34:46',
-      title: '[FULL STORY] When did you realize your parents...',
-      description: 'When did you realize your parents shouldn\'t have had kids? #redditstories Real story, get with fake names so it...',
-      account: 'Requestedreads',
-      date: 'May 22, 2025',
-      status: 'Published',
-      views: '56.5K',
-      likes: '98.2%',
-      comments: '1,807 likes'
-    },
-    {
-      id: 4,
-      thumbnail: '📋',
-      color: '#2E2E2E',
-      duration: '32:2',
-      title: '[FULL STORY] What subtle comment completely...',
-      description: 'What subtle comment completely destroyed your self-esteem? #redditstories Real story, get with fake names so it...',
-      account: 'UnlimitedStories',
-      date: 'May 22, 2025',
-      status: 'Published',
-      views: '27.1K',
-      likes: '98.7%',
-      comments: '3,065 likes'
-    },
-    {
-      id: 5,
-      thumbnail: '📃',
-      color: '#2E2E2E',
-      duration: '33:04',
-      title: '[FULL STORY] What made you realize that there...',
-      description: 'What made you realize that there was something wrong with your family? #redditstories Real story, get with fake names so it...',
-      account: 'BrokenStories',
-      date: 'May 22, 2025',
-      status: 'Published',
-      views: '14.8K',
-      likes: '97.3%',
-      comments: '774 likes'
-    },
-    {
-      id: 6,
-      thumbnail: '📑',
-      color: '#2E2E2E',
-      duration: '34:46',
-      title: '[FULL STORY] When did you realize your friend h...',
-      description: 'When did you realize your friend had no moral compass? #redditstories Real story, get with fake names so it...',
-      account: 'Frontlinereads',
-      date: 'May 21, 2025',
-      status: 'Published',
-      views: '159.9K',
-      likes: '98.9%',
-      comments: '6,911 likes'
-    },
-    {
-      id: 7,
-      thumbnail: '📊',
-      color: '#2E2E2E',
-      duration: '34:46',
-      title: '[FULL STORY] When did you realize your parents...',
-      description: 'When did you realize your parents shouldn\'t have had kids? #redditstories Real story, get with fake names so it...',
-      account: 'Thumbs Up Stories',
-      date: 'May 21, 2025',
-      status: 'Published',
-      views: '15.1K',
-      likes: '99.2%',
-      comments: '1,143 likes'
-    }
-  ];
+  
 
   // Get current content based on selected tab (for now, show all content in both tabs)
   const currentContent = contentData;
@@ -581,9 +379,7 @@ const Content = () => {
                 setVideoTypeFilter('short'); // Shorts tab
               } else if (newValue === 1) {
                 setVideoTypeFilter('video'); // Videos tab
-              } else if (newValue === 2) {
-                setVideoTypeFilter('full_to_short'); // Full to Short tab
-              }
+              } 
               setCurrentPage(1); // Reset to first page when changing tabs
             }}
             sx={{
@@ -605,7 +401,7 @@ const Content = () => {
           >
             <Tab label="Shorts" />
             <Tab label="Videos" />
-            <Tab label="Full to Short" />
+           
           </Tabs>
         </Box>
 

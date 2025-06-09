@@ -1,18 +1,18 @@
-const express = require('express');
-const cors = require('cors');
-const dotenv = require('dotenv');
-const http = require('http');
-const jwt = require('jsonwebtoken');
-const { Server } = require('socket.io');
-const WebSocket = require('ws');
-const axios = require('axios');
-const { BigQuery } = require('@google-cloud/bigquery');
-const authRoutes = require('./routes/auth');
-const submissionRoutes = require('./routes/submissions');
-const analyticsRoutes = require('./routes/analytics');
-const userRoutes = require('./routes/user');
-const influxRoutes = require('./routes/influx');
-const dataExplorerRoutes = require('./routes/dataExplorer');
+const express = require("express");
+const cors = require("cors");
+const dotenv = require("dotenv");
+const http = require("http");
+const jwt = require("jsonwebtoken");
+const { Server } = require("socket.io");
+const WebSocket = require("ws");
+const axios = require("axios");
+const { BigQuery } = require("@google-cloud/bigquery");
+const authRoutes = require("./routes/auth");
+const submissionRoutes = require("./routes/submissions");
+const analyticsRoutes = require("./routes/analytics");
+const userRoutes = require("./routes/user");
+const influxRoutes = require("./routes/influx");
+const dataExplorerRoutes = require("./routes/dataExplorer");
 
 dotenv.config();
 
@@ -23,15 +23,21 @@ const setupBigQueryClient = async () => {
     const credentialsJson = process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON;
 
     if (!credentialsJson) {
-      throw new Error('GOOGLE_APPLICATION_CREDENTIALS_JSON environment variable not set');
+      throw new Error(
+        "GOOGLE_APPLICATION_CREDENTIALS_JSON environment variable not set"
+      );
     }
 
     const credentials = JSON.parse(credentialsJson);
     const projectId = process.env.BIGQUERY_PROJECT_ID || "speedy-web-461014-g3";
 
     console.log(`🔍 BigQuery Debug: Using project ID: "${projectId}"`);
-    console.log(`🔍 BigQuery Debug: Credentials project_id: "${credentials.project_id}"`);
-    console.log(`🔍 BigQuery Debug: Environment BIGQUERY_PROJECT_ID: "${process.env.BIGQUERY_PROJECT_ID}"`);
+    console.log(
+      `🔍 BigQuery Debug: Credentials project_id: "${credentials.project_id}"`
+    );
+    console.log(
+      `🔍 BigQuery Debug: Environment BIGQUERY_PROJECT_ID: "${process.env.BIGQUERY_PROJECT_ID}"`
+    );
 
     const bigquery = new BigQuery({
       credentials: credentials,
@@ -39,7 +45,9 @@ const setupBigQueryClient = async () => {
       location: "US",
     });
 
-    console.log(`✅ BigQuery client initialized successfully for project: ${projectId}`);
+    console.log(
+      `✅ BigQuery client initialized successfully for project: ${projectId}`
+    );
     return bigquery;
   } catch (error) {
     console.error("❌ Failed to set up BigQuery client:", error);
@@ -51,9 +59,9 @@ const setupBigQueryClient = async () => {
 const initializeBigQuery = async () => {
   try {
     global.bigqueryClient = await setupBigQueryClient();
-    console.log('🎯 BigQuery client ready for requests');
+    console.log("🎯 BigQuery client ready for requests");
   } catch (error) {
-    console.error('❌ Failed to initialize BigQuery:', error);
+    console.error("❌ Failed to initialize BigQuery:", error);
     global.bigqueryClient = null;
   }
 };
@@ -67,10 +75,10 @@ const PORT = process.env.PORT || 5001;
 // Initialize database connection
 let pool;
 try {
-  pool = require('./config/database');
-  console.log('✅ Database connection initialized');
+  pool = require("./config/database");
+  console.log("✅ Database connection initialized");
 } catch (error) {
-  console.error('❌ Failed to initialize database:', error);
+  console.error("❌ Failed to initialize database:", error);
 }
 
 // Middleware
@@ -79,34 +87,37 @@ app.use(express.json());
 
 // JWT authentication middleware
 const authenticateToken = (req, res, next) => {
-  const token = req.headers.authorization?.split(' ')[1];
+  const token = req.headers.authorization?.split(" ")[1];
 
   if (!token) {
-    return res.status(401).json({ message: 'No token provided' });
+    return res.status(401).json({ message: "No token provided" });
   }
 
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'fallback_secret');
+    const decoded = jwt.verify(
+      token,
+      process.env.JWT_SECRET || "fallback_secret"
+    );
     req.user = decoded;
     next();
   } catch (error) {
-    res.status(401).json({ message: 'Invalid token' });
+    res.status(401).json({ message: "Invalid token" });
   }
 };
 
 // Routes
-app.use('/api/auth', authRoutes);
-app.use('/api/submissions', submissionRoutes);
-app.use('/api/analytics', analyticsRoutes);
-app.use('/api/user', userRoutes);
-app.use('/api/influx', influxRoutes);
-app.use('/api/data-explorer', dataExplorerRoutes);
+app.use("/api/auth", authRoutes);
+app.use("/api/submissions", submissionRoutes);
+app.use("/api/analytics", analyticsRoutes);
+app.use("/api/user", userRoutes);
+app.use("/api/influx", influxRoutes);
+app.use("/api/data-explorer", dataExplorerRoutes);
 
 // Route /api/writer/videos to BigQuery-powered analytics endpoint
-app.use('/api/writer', analyticsRoutes);
+app.use("/api/writer", analyticsRoutes);
 
 // API endpoints for Dashboard.jsx
-app.get('/api/tropes', async (req, res) => {
+app.get("/api/tropes", async (req, res) => {
   try {
     if (pool) {
       const result = await pool.query(
@@ -118,7 +129,7 @@ app.get('/api/tropes', async (req, res) => {
       res.json([
         { id: 1, number: 1, name: "Sample Trope 1" },
         { id: 2, number: 2, name: "Sample Trope 2" },
-        { id: 3, number: 3, name: "Sample Trope 3" }
+        { id: 3, number: 3, name: "Sample Trope 3" },
       ]);
     }
   } catch (error) {
@@ -127,7 +138,7 @@ app.get('/api/tropes', async (req, res) => {
   }
 });
 
-app.get('/api/structures', async (req, res) => {
+app.get("/api/structures", async (req, res) => {
   try {
     if (pool) {
       const query = `
@@ -147,8 +158,8 @@ app.get('/api/structures', async (req, res) => {
       res.json({
         structures: [
           { structure_id: 1, name: "Three Act Structure", writers: [] },
-          { structure_id: 2, name: "Hero's Journey", writers: [] }
-        ]
+          { structure_id: 2, name: "Hero's Journey", writers: [] },
+        ],
       });
     }
   } catch (error) {
@@ -157,7 +168,7 @@ app.get('/api/structures', async (req, res) => {
   }
 });
 
-app.get('/api/scripts', async (req, res) => {
+app.get("/api/scripts", async (req, res) => {
   const { writer_id, startDate, endDate, searchTitle } = req.query;
 
   try {
@@ -310,41 +321,54 @@ app.post("/api/scripts", async (req, res) => {
     try {
       // Use the server's own URL for the API call
       // In production, use the actual domain; in development, use localhost
-      const serverUrl = process.env.SERVER_URL ||
-        (process.env.NODE_ENV === 'production'
-          ? `https://${process.env.VERCEL_URL || 'https://writer-dashboard-1t76.vercel.app'}`
+      const serverUrl =
+        process.env.SERVER_URL ||
+        (process.env.NODE_ENV === "production"
+          ? `https://${
+              process.env.VERCEL_URL ||
+              "https://writer-dashboard-1t76.vercel.app"
+            }`
           : `http://localhost:${PORT}`);
 
-      console.log(`Making internal API call to: ${serverUrl}/api/getPostingAccount`);
+      console.log(
+        `Making internal API call to: ${serverUrl}/api/getPostingAccount`
+      );
       const response = await axios.post(`${serverUrl}/api/getPostingAccount`, {
         trello_card_id: trelloCardId,
         ignore_daily_limit: Boolean(isStoryLine),
       });
       const accountName = response.data?.account;
 
-if (accountName) {
-  try {
-    // Query to find account ID based on the name
-    const accountQuery = await pool.query(
-      `SELECT id FROM posting_accounts WHERE account = $1`,
-      [accountName]
-    );
-    const accountId = accountQuery.rows[0]?.id;
+      if (accountName) {
+        try {
+          // Query to find account ID based on the name
+          const accountQuery = await pool.query(
+            `SELECT id FROM posting_accounts WHERE account = $1`,
+            [accountName]
+          );
+          const accountId = accountQuery.rows[0]?.id;
 
-    if (accountId) {
-      // Update script row with account_id
-      await pool.query(
-        `UPDATE script SET account_id = $1 WHERE id = $2`,
-        [accountId, script.id]
-      );
-      console.log(`Updated script ${script.id} with account ID ${accountId}`);
-    } else {
-      console.warn(`Account name "${accountName}" not found in posting_accounts table`);
-    }
-  } catch (err) {
-    console.error("Failed to update script with posting account ID:", err);
-  }
-}
+          if (accountId) {
+            // Update script row with account_id
+            await pool.query(
+              `UPDATE script SET account_id = $1 WHERE id = $2`,
+              [accountId, script.id]
+            );
+            console.log(
+              `Updated script ${script.id} with account ID ${accountId}`
+            );
+          } else {
+            console.warn(
+              `Account name "${accountName}" not found in posting_accounts table`
+            );
+          }
+        } catch (err) {
+          console.error(
+            "Failed to update script with posting account ID:",
+            err
+          );
+        }
+      }
 
       console.log(`Posting account assigned for card ${trelloCardId}`);
     } catch (postingAccountError) {
@@ -356,11 +380,13 @@ if (accountName) {
         syscall: postingAccountError.syscall,
         address: postingAccountError.address,
         port: postingAccountError.port,
-        config: postingAccountError.config ? {
-          url: postingAccountError.config.url,
-          method: postingAccountError.config.method,
-          baseURL: postingAccountError.config.baseURL
-        } : 'No config available'
+        config: postingAccountError.config
+          ? {
+              url: postingAccountError.config.url,
+              method: postingAccountError.config.method,
+              baseURL: postingAccountError.config.baseURL,
+            }
+          : "No config available",
       });
       // Continue execution - don't fail the request if posting account assignment fails
     }
@@ -662,7 +688,7 @@ app.post("/api/vercel-voice-automation", async (req, res) => {
   }
 });
 
-app.get('/api/getWriter', async (req, res) => {
+app.get("/api/getWriter", async (req, res) => {
   const { username } = req.query;
 
   try {
@@ -1137,7 +1163,7 @@ function extractVideoId(url) {
   const patterns = [
     /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/,
     /youtube\.com\/shorts\/([^"&?\/\s]{11})/,
-    /youtube\.com\/watch\?v=([^"&?\/\s]{11})/
+    /youtube\.com\/watch\?v=([^"&?\/\s]{11})/,
   ];
 
   for (const pattern of patterns) {
@@ -1154,40 +1180,71 @@ function extractVideoId(url) {
 
 // Helper function to identify video type from URL
 function getVideoType(url) {
-  if (!url) return 'video';
+  if (!url) return "video";
 
   // Check for YouTube Shorts URLs
-  if (url.includes('/shorts/') || url.includes('youtube.com/shorts')) {
-    return 'short';
+  if (url.includes("/shorts/") || url.includes("youtube.com/shorts")) {
+    return "short";
   }
 
   // Check for other short-form indicators
-  if (url.includes('youtu.be/') && url.length < 50) {
-    return 'short'; // youtu.be links are often shorts
+  if (url.includes("youtu.be/") && url.length < 50) {
+    return "short"; // youtu.be links are often shorts
   }
 
   // Default to long-form video
-  return 'video';
+  return "video";
 }
 
 // Helper function to get video duration category
 function getVideoDurationCategory(duration) {
-  if (!duration) return 'video';
+  if (!duration) return "video";
 
   // Parse duration string (e.g., "0:45", "15:30")
-  const parts = duration.split(':');
+  const parts = duration.split(":");
   let totalSeconds = 0;
 
   if (parts.length === 2) {
     totalSeconds = parseInt(parts[0]) * 60 + parseInt(parts[1]);
   } else if (parts.length === 3) {
-    totalSeconds = parseInt(parts[0]) * 3600 + parseInt(parts[1]) * 60 + parseInt(parts[2]);
+    totalSeconds =
+      parseInt(parts[0]) * 3600 + parseInt(parts[1]) * 60 + parseInt(parts[2]);
   }
 
   // YouTube Shorts are typically under 60 seconds
-  return totalSeconds <= 60 ? 'short' : 'video';
+  return totalSeconds <= 60 ? "short" : "video";
 }
 
+
+async function getYouTubeDurationsFromBigQuery(videoIds, writerName) {
+  const bigquery = global.bigqueryClient;
+  const projectId = process.env.BIGQUERY_PROJECT_ID || "speedy-web-461014-g3";
+  const dataset = "dbt_youtube_analytics";
+
+  const durationQuery = `
+    SELECT
+      video_id,
+      video_duration_seconds
+    FROM \`${projectId}.${dataset}.youtube_video_report_historical\`
+    WHERE video_id IN UNNEST(@video_ids)
+      AND writer_name = @writer_name
+  `;
+
+  const [rows] = await bigquery.query({
+    query: durationQuery,
+    params: {
+      video_ids: videoIds,
+      writer_name: writerName,
+    },
+  });
+
+  const durationMap = {};
+  rows.forEach((row) => {
+    durationMap[row.video_id] = row.video_duration_seconds;
+  });
+
+  return durationMap;
+}
 // Note: Removed generateRandomDuration function - now using only real database duration
 
 // Your working PostgreSQL API for writer analytics with pagination
@@ -1212,7 +1269,7 @@ app.get("/api/writer/analytics", async (req, res) => {
     LEFT JOIN statistics ON video.id = statistics.video_id
     WHERE video.writer_id = $1
       AND video.url NOT LIKE '%youtube.com%'
-      AND (video.video_cat IS NULL OR video.video_cat != 'full to short')
+    
     ORDER BY statistics.posted_date DESC;
   `;
 
@@ -1223,7 +1280,7 @@ app.get("/api/writer/analytics", async (req, res) => {
       video.script_title AS title,
       statistics_youtube_api.posted_date,
       statistics_youtube_api.preview,
-      statistics_youtube_api.duration,
+      
       COALESCE(statistics_youtube_api.likes_total, 0) AS likes_total,
       COALESCE(statistics_youtube_api.comments_total, 0) AS comments_total,
       COALESCE(statistics_youtube_api.views_total, 0) AS views_total,
@@ -1233,7 +1290,7 @@ app.get("/api/writer/analytics", async (req, res) => {
         ON CAST(video.id AS VARCHAR) = statistics_youtube_api.video_id
     WHERE video.writer_id = $1
       AND video.url LIKE '%youtube.com%'
-      AND (video.video_cat IS NULL OR video.video_cat != 'full to short')
+  
     ORDER BY statistics_youtube_api.posted_date DESC;
   `;
 
@@ -1254,14 +1311,53 @@ app.get("/api/writer/analytics", async (req, res) => {
 
       const combinedData = [...nonYoutubeRows, ...youtubeRows];
 
-      // Apply type filtering
-      let filteredData = combinedData;
-      if (type === 'short') {
-        filteredData = combinedData.filter(video => video.url && video.url.includes('/shorts/'));
-      } else if (type === 'video') {
-        filteredData = combinedData.filter(video => video.url && !video.url.includes('/shorts/'));
+      // Extract YouTube video IDs
+      const youtubeVideoIds = youtubeRows
+        .map((row) => extractVideoId(row.url))
+        .filter((id) => !!id);
+
+      // Fetch writer name (reuse same query as in audience retention)
+      const writerQuery = `SELECT name FROM writer WHERE id = $1`;
+      const { rows: writerRows } = await pool.query(writerQuery, [
+        parseInt(writer_id),
+      ]);
+      if (writerRows.length === 0) {
+        throw new Error(`Writer with ID ${writer_id} not found`);
       }
-      // For type === 'all', no filtering needed
+      const writerName = writerRows[0].name;
+
+      // Fetch durations from BigQuery
+      const youtubeDurations = await getYouTubeDurationsFromBigQuery(
+        youtubeVideoIds,
+        writerName
+      );
+
+      console.log("✅ YouTube duration map:", youtubeDurations);
+
+
+      // Update filtering logic
+  let filteredData = combinedData;
+
+  if (type === "short" || type === "video") {
+  filteredData = combinedData.filter((video) => {
+    const isYouTube = video.url?.includes("youtube.com");
+    const videoId = isYouTube ? extractVideoId(video.url) : null;
+    const duration = isYouTube ? youtubeDurations[videoId] : null;
+
+    if (isYouTube) {
+      // Only apply duration check if we have valid YouTube duration
+      if (duration === undefined) {
+        console.log(`⚠️ Missing duration for video ID: ${videoId}`);
+        return false; // skip if we can't determine duration
+      }
+      return type === "short" ? duration <= 180.5 : duration > 180.5;
+    } else {
+      // For non-YouTube videos, assume they are all "video"
+      return type === "video";
+    }
+  });
+}
+
 
       const totalVideos = filteredData.length;
       const totalPages = Math.ceil(totalVideos / limitNum);
@@ -1270,34 +1366,55 @@ app.get("/api/writer/analytics", async (req, res) => {
       const paginatedData = filteredData.slice(offset, offset + limitNum);
 
       // Transform for Content page format
-      const transformedData = paginatedData.map((video, index) => {
-        // Use actual duration from database - skip videos without duration
-        let duration = video.duration;
-        if (!duration) {
-          console.log(`⚠️ Skipping video ${video.video_id} - no duration data available`);
-          return null; // Skip videos without duration
-        }
-        const videoType = getVideoType(video.url);
+      const transformedData = paginatedData
+        .map((video, index) => {
+          // Use actual duration from database - skip videos without duration
+          let duration = video.duration;
+          if (!duration) {
+            console.log(
+              `⚠️ Skipping video ${video.video_id} - no duration data available`
+            );
+            return null; // Skip videos without duration
+          }
+          const videoId = extractVideoId(video.url);
+          let videoType = "unknown";
+          if (videoId && youtubeDurations[videoId] !== undefined) {
+            videoType = youtubeDurations[videoId] >   180.5 ? "video" : "short";
+          } else if (video.url && !video.url.includes("youtube.com")) {
+            videoType = "video"; // default for non-YouTube videos
+          }
 
-        return {
-          id: video.video_id || index + 1,
-          url: video.url || "",
-          title: video.title || "Untitled Video",
-          writer_id: writer_id,
-          writer_name: "Writer",
-          account_name: "Channel",
-          preview: video.preview || (video.url ? `https://img.youtube.com/vi/${extractVideoId(video.url)}/maxresdefault.jpg` : ""),
-          views: video.views_total || 0,
-          likes: video.likes_total || 0,
-          comments: video.comments_total || 0,
-          posted_date: video.posted_date || new Date().toISOString(),
-          duration: duration,
-          type: videoType, // 'short' or 'video'
-          status: "Published"
-        };
-      }).filter(video => video !== null); // Remove videos without duration
+          console.log(`🎯 Filtering video ${video.title}, YouTube ID: ${videoId}, Duration: ${duration}`);
 
-      console.log(`✅ PostgreSQL analytics: Found ${transformedData.length}/${totalVideos} videos for writer ${writer_id} (Page ${pageNum}/${totalPages})`);
+
+          return {
+            id: video.video_id || index + 1,
+            url: video.url || "",
+            title: video.title || "Untitled Video",
+            writer_id: writer_id,
+            writer_name: "Writer",
+            account_name: "Channel",
+            preview:
+              video.preview ||
+              (video.url
+                ? `https://img.youtube.com/vi/${extractVideoId(
+                    video.url
+                  )}/maxresdefault.jpg`
+                : ""),
+            views: video.views_total || 0,
+            likes: video.likes_total || 0,
+            comments: video.comments_total || 0,
+            posted_date: video.posted_date || new Date().toISOString(),
+            duration: duration,
+            type: videoType, // 'short' or 'video'
+            status: "Published",
+          };
+        })
+        .filter((video) => video !== null); // Remove videos without duration
+
+      console.log(
+        `✅ PostgreSQL analytics: Found ${transformedData.length}/${totalVideos} videos for writer ${writer_id} (Page ${pageNum}/${totalPages})`
+      );
 
       // Return paginated response
       res.json({
@@ -1308,8 +1425,8 @@ app.get("/api/writer/analytics", async (req, res) => {
           totalVideos: totalVideos,
           videosPerPage: limitNum,
           hasNextPage: pageNum < totalPages,
-          hasPrevPage: pageNum > 1
-        }
+          hasPrevPage: pageNum > 1,
+        },
       });
     } else {
       res.status(500).json({ error: "Database not available" });
@@ -1320,39 +1437,55 @@ app.get("/api/writer/analytics", async (req, res) => {
   }
 });
 
+
 // BigQuery function to get audience retention data for individual video
 async function getBigQueryAudienceRetention(videoId, writerId) {
   try {
-    console.log(`📊 BigQuery: Getting audience retention for video ${videoId}, writer ${writerId}`);
+    console.log(
+      `📊 BigQuery: Getting audience retention for video ${videoId}, writer ${writerId}`
+    );
 
     // Use the global BigQuery client
     if (!global.bigqueryClient) {
-      throw new Error('BigQuery client not initialized');
+      throw new Error("BigQuery client not initialized");
     }
 
     const bigquery = global.bigqueryClient;
-    console.log(`🔍 BigQuery Debug: Using client with project ID: ${bigquery.projectId}`);
+    console.log(
+      `🔍 BigQuery Debug: Using client with project ID: ${bigquery.projectId}`
+    );
 
     // First, get the YouTube video ID from PostgreSQL video table URL
     const videoQuery = `SELECT url FROM video WHERE id = $1 AND writer_id = $2`;
-    const { rows: videoRows } = await pool.query(videoQuery, [parseInt(videoId), parseInt(writerId)]);
+    const { rows: videoRows } = await pool.query(videoQuery, [
+      parseInt(videoId),
+      parseInt(writerId),
+    ]);
 
     if (videoRows.length === 0) {
-      throw new Error(`Video with ID ${videoId} not found for writer ${writerId}`);
+      throw new Error(
+        `Video with ID ${videoId} not found for writer ${writerId}`
+      );
     }
 
     const videoUrl = videoRows[0].url;
     // Extract YouTube video ID from URL (e.g., "Rde8GGIRSqo" from "https://www.youtube.com/shorts/Rde8GGIRSqo")
     const youtubeVideoId = extractVideoId(videoUrl);
     if (!youtubeVideoId) {
-      throw new Error(`Could not extract YouTube video ID from URL: ${videoUrl}`);
+      throw new Error(
+        `Could not extract YouTube video ID from URL: ${videoUrl}`
+      );
     }
 
-    console.log(`📊 Extracted YouTube video ID: ${youtubeVideoId} from URL: ${videoUrl}`);
+    console.log(
+      `📊 Extracted YouTube video ID: ${youtubeVideoId} from URL: ${videoUrl}`
+    );
 
     // Get writer name from PostgreSQL for youtube_video_report_historical query
     const writerQuery = `SELECT name FROM writer WHERE id = $1`;
-    const { rows: writerRows } = await pool.query(writerQuery, [parseInt(writerId)]);
+    const { rows: writerRows } = await pool.query(writerQuery, [
+      parseInt(writerId),
+    ]);
 
     if (writerRows.length === 0) {
       throw new Error(`Writer with ID ${writerId} not found`);
@@ -1382,17 +1515,21 @@ async function getBigQueryAudienceRetention(videoId, writerId) {
      ORDER BY elapsed_video_time_ratio ASC
     `;
 
-    console.log(`🔍 Querying retention graph data for video ${videoId}, writer ${writerId}`);
+    console.log(
+      `🔍 Querying retention graph data for video ${videoId}, writer ${writerId}`
+    );
 
     const [retentionRows] = await bigquery.query({
       query: retentionQuery,
       params: {
         video_id: youtubeVideoId,
-        writer_id: parseInt(writerId)
-      }
+        writer_id: parseInt(writerId),
+      },
     });
 
-    console.log(`📊 BigQuery returned ${retentionRows.length} retention data points`);
+    console.log(
+      `📊 BigQuery returned ${retentionRows.length} retention data points`
+    );
 
     // Query 2: youtube_video_report_historical for duration metrics
     const durationQuery = `
@@ -1408,14 +1545,16 @@ async function getBigQueryAudienceRetention(videoId, writerId) {
       LIMIT 1
     `;
 
-    console.log(`🔍 Querying duration metrics for video ${videoId}, writer ${writerName}`);
+    console.log(
+      `🔍 Querying duration metrics for video ${videoId}, writer ${writerName}`
+    );
 
     const [durationRows] = await bigquery.query({
       query: durationQuery,
       params: {
         video_id: youtubeVideoId,
-        writer_name: writerName
-      }
+        writer_name: writerName,
+      },
     });
 
     console.log(`⏱️ BigQuery returned ${durationRows.length} duration records`);
@@ -1426,17 +1565,21 @@ async function getBigQueryAudienceRetention(videoId, writerId) {
     }
 
     // Get account name from PostgreSQL using account_id
-    let accountName = 'Unknown Account';
+    let accountName = "Unknown Account";
     if (retentionRows[0].account_id) {
       try {
         const accountQuery = `SELECT account FROM posting_accounts WHERE id = $1`;
-        const { rows: accountRows } = await pool.query(accountQuery, [retentionRows[0].account_id]);
+        const { rows: accountRows } = await pool.query(accountQuery, [
+          retentionRows[0].account_id,
+        ]);
         if (accountRows.length > 0) {
           accountName = accountRows[0].account;
-          console.log(`✅ Found account name: ${accountName} for account_id: ${retentionRows[0].account_id}`);
+          console.log(
+            `✅ Found account name: ${accountName} for account_id: ${retentionRows[0].account_id}`
+          );
         }
       } catch (accountError) {
-        console.error('⚠️ Error getting account name:', accountError);
+        console.error("⚠️ Error getting account name:", accountError);
       }
     }
 
@@ -1452,13 +1595,17 @@ async function getBigQueryAudienceRetention(videoId, writerId) {
       const totalSecondsPlaceholder = timeRatio * 600; // 10 minutes = 600 seconds
       const minutes = Math.floor(totalSecondsPlaceholder / 60);
       const seconds = Math.floor(totalSecondsPlaceholder % 60);
-      const timeStr = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+      const timeStr = `${minutes}:${seconds.toString().padStart(2, "0")}`;
 
       // Use relative_retention_performance for primary line (this video's retention)
-      const thisVideoRetention = Math.round((row.relative_retention_performance || 0) * 100);
+      const thisVideoRetention = Math.round(
+        (row.relative_retention_performance || 0) * 100
+      );
 
       // Use audience_watch_ratio for secondary line (typical/average retention)
-      const typicalRetention = Math.round((row.audience_watch_ratio || 0) * 100);
+      const typicalRetention = Math.round(
+        (row.audience_watch_ratio || 0) * 100
+      );
 
       // Determine if this is a key moment (significant retention changes)
       const isKeyMoment = timeRatio >= 0.05 && timeRatio <= 0.15; // Around 30 seconds to 1.5 minutes
@@ -1466,7 +1613,11 @@ async function getBigQueryAudienceRetention(videoId, writerId) {
 
       // Log first few data points for debugging
       if (index < 5) {
-        console.log(`📊 Data point ${index}: timeRatio=${timeRatio.toFixed(3)}, thisVideo=${thisVideoRetention}%, typical=${typicalRetention}%, time=${timeStr}`);
+        console.log(
+          `📊 Data point ${index}: timeRatio=${timeRatio.toFixed(
+            3
+          )}, thisVideo=${thisVideoRetention}%, typical=${typicalRetention}%, time=${timeStr}`
+        );
       }
 
       return {
@@ -1479,65 +1630,81 @@ async function getBigQueryAudienceRetention(videoId, writerId) {
         // Keep raw values for debugging
         rawElapsedRatio: row.elapsed_video_time_ratio,
         rawRetentionPerf: row.relative_retention_performance,
-        rawAudienceWatch: row.audience_watch_ratio
+        rawAudienceWatch: row.audience_watch_ratio,
       };
     });
 
     // Calculate key metrics from real retention data
-    const avgRetention = retentionData.reduce((sum, point) => sum + point.percentage, 0) / retentionData.length;
+    const avgRetention =
+      retentionData.reduce((sum, point) => sum + point.percentage, 0) /
+      retentionData.length;
 
     // "Stayed to watch" - retention at around 30% through the video
-   // 1) Compute stayedToWatch from the retention curve
-let stayedToWatch = 0;
-if (retentionRows.length) {
-  // find the point closest to 50% of the video
-  const midPoint = retentionRows.reduce((best, row) => {
-    const ratio = parseFloat(row.elapsed_video_time_ratio);
-    const watch = parseFloat(row.audience_watch_ratio);
-    const dist  = Math.abs(ratio - 0.5);
-    if (dist < best.dist) {
-      return { dist, watch };
+    // 1) Compute stayedToWatch from the retention curve
+    let stayedToWatch = 0;
+    if (retentionRows.length) {
+      // find the point closest to 50% of the video
+      const midPoint = retentionRows.reduce(
+        (best, row) => {
+          const ratio = parseFloat(row.elapsed_video_time_ratio);
+          const watch = parseFloat(row.audience_watch_ratio);
+          const dist = Math.abs(ratio - 0.5);
+          if (dist < best.dist) {
+            return { dist, watch };
+          }
+          return best;
+        },
+        { dist: 1, watch: 0 }
+      );
+
+      stayedToWatch = Math.round(midPoint.watch * 100);
     }
-    return best;
-  }, { dist: 1, watch: 0 });
 
-  stayedToWatch = Math.round(midPoint.watch * 100);
-}
+    // 1b) new “global” metrics:
+    const totalWatchTime = durationRows[0]?.watch_time_minutes || 0;
+    const avgViewPct =
+      Math.round(
+        (durationRows[0]?.average_view_duration_percentage || 0) * 100
+      ) / 100;
 
+    // 1c) average audience_watch_ratio & relative_retention_performance across the curve:
+    const avgAudienceWatchRatio = Math.round(
+      (retentionRows.reduce(
+        (sum, r) => sum + parseFloat(r.audience_watch_ratio),
+        0
+      ) /
+        retentionRows.length) *
+        100
+    );
+    const avgRelRetentionPerf = Math.round(
+      (retentionRows.reduce(
+        (sum, r) => sum + parseFloat(r.relative_retention_performance),
+        0
+      ) /
+        retentionRows.length) *
+        100
+    );
 
-// 1b) new “global” metrics:
-const totalWatchTime = durationRows[0]?.watch_time_minutes  || 0;
-const avgViewPct     = Math.round((durationRows[0]?.average_view_duration_percentage || 0) * 100) / 100;
-
-// 1c) average audience_watch_ratio & relative_retention_performance across the curve:
-const avgAudienceWatchRatio = Math.round(
-  retentionRows.reduce((sum, r) => sum + parseFloat(r.audience_watch_ratio), 0)
-  / retentionRows.length
-  * 100
-);
-const avgRelRetentionPerf = Math.round(
-  retentionRows.reduce((sum, r) => sum + parseFloat(r.relative_retention_performance), 0)
-  / retentionRows.length
-  * 100
-);
-
-// 1d) find drop-off points (local minima) & key-moments (your existing isKeyMoment marker)
-const dropOffPoints = retentionData.filter((pt, i, arr) => {
-  if (!arr[i-1] || !arr[i+1]) return false;
-  return pt.percentage < arr[i-1].percentage && pt.percentage < arr[i+1].percentage;
-});
-const keyMomentMarkers = retentionData.filter(pt => pt.isKeyMoment);
+    // 1d) find drop-off points (local minima) & key-moments (your existing isKeyMoment marker)
+    const dropOffPoints = retentionData.filter((pt, i, arr) => {
+      if (!arr[i - 1] || !arr[i + 1]) return false;
+      return (
+        pt.percentage < arr[i - 1].percentage &&
+        pt.percentage < arr[i + 1].percentage
+      );
+    });
+    const keyMomentMarkers = retentionData.filter((pt) => pt.isKeyMoment);
 
     // Calculate average view duration using BigQuery metrics
     // Method 1: Find where retention drops to 50% (common metric)
     // Method 2: Calculate weighted average based on retention curve
- //   let avgViewDuration = "0:00";
+    //   let avgViewDuration = "0:00";
     if (retentionData.length > 0) {
       // Calculate weighted average view duration from retention curve
       let totalWeightedTime = 0;
       let totalWeight = 0;
 
-      retentionData.forEach(point => {
+      retentionData.forEach((point) => {
         const weight = point.percentage / 100; // Convert percentage to weight
         totalWeightedTime += point.timeRatio * weight;
         totalWeight += weight;
@@ -1549,9 +1716,13 @@ const keyMomentMarkers = retentionData.filter(pt => pt.isKeyMoment);
         const avgSeconds = Math.floor(avgTimeRatio * 600); // Using 10min placeholder
         const minutes = Math.floor(avgSeconds / 60);
         const seconds = avgSeconds % 60;
-        avgViewDuration = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+        avgViewDuration = `${minutes}:${seconds.toString().padStart(2, "0")}`;
 
-        console.log(`📊 Calculated avg view duration: ratio=${avgTimeRatio.toFixed(3)} → ${avgViewDuration}`);
+        console.log(
+          `📊 Calculated avg view duration: ratio=${avgTimeRatio.toFixed(
+            3
+          )} → ${avgViewDuration}`
+        );
       }
     }
 
@@ -1567,39 +1738,49 @@ const keyMomentMarkers = retentionData.filter(pt => pt.isKeyMoment);
       watchTimeMinutes = durationData.watch_time_minutes;
       videoDurationSeconds = durationData.video_duration_seconds;
       averageViewDurationSeconds = durationData.average_view_duration_seconds;
-      averageViewDurationPercentage = durationData.average_view_duration_percentage;
+      averageViewDurationPercentage =
+        durationData.average_view_duration_percentage;
 
       // Use average_view_duration_seconds if available, otherwise convert watch_time_minutes
       if (averageViewDurationSeconds) {
         const minutes = Math.floor(averageViewDurationSeconds / 60);
         const seconds = Math.round(averageViewDurationSeconds % 60);
-        avgViewDurationFromReport = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+        avgViewDurationFromReport = `${minutes}:${seconds
+          .toString()
+          .padStart(2, "0")}`;
       } else if (watchTimeMinutes) {
         const totalSeconds = Math.round(watchTimeMinutes * 60);
         const minutes = Math.floor(totalSeconds / 60);
         const seconds = totalSeconds % 60;
-        avgViewDurationFromReport = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+        avgViewDurationFromReport = `${minutes}:${seconds
+          .toString()
+          .padStart(2, "0")}`;
       }
 
       console.log(`⏱️ Duration metrics from youtube_video_report_historical:`);
       console.log(`   - watch_time_minutes: ${watchTimeMinutes}`);
       console.log(`   - video_duration_seconds: ${videoDurationSeconds}`);
-      console.log(`   - average_view_duration_seconds: ${averageViewDurationSeconds}`);
-      console.log(`   - average_view_duration_percentage: ${averageViewDurationPercentage}`);
+      console.log(
+        `   - average_view_duration_seconds: ${averageViewDurationSeconds}`
+      );
+      console.log(
+        `   - average_view_duration_percentage: ${averageViewDurationPercentage}`
+      );
       console.log(`   - formatted_duration: ${avgViewDurationFromReport}`);
     } else {
-      console.log(`⚠️ No duration data found in youtube_video_report_historical for video ${videoId}`);
+      console.log(
+        `⚠️ No duration data found in youtube_video_report_historical for video ${videoId}`
+      );
     }
 
     return {
       retentionData,
       accountName,
-        metrics: {
-     
-stayedToWatch,                // e.g. 50
-      avgAudienceWatchRatio,        // e.g. 62  (%)    avgRelRetentionPerf,          // e.g. 85  (%)
-      totalWatchTime,               // e.g. 152.3 (minutes)
-      avgViewPct,                   // e.g. 42.7 (%)
+      metrics: {
+        stayedToWatch, // e.g. 50
+        avgAudienceWatchRatio, // e.g. 62  (%)    avgRelRetentionPerf,          // e.g. 85  (%)
+        totalWatchTime, // e.g. 152.3 (minutes)
+        avgViewPct, // e.g. 42.7 (%)
       },
       // Additional metrics from youtube_video_report_historical for retention section display
       durationMetrics: {
@@ -1607,50 +1788,66 @@ stayedToWatch,                // e.g. 50
         videoDurationSeconds: videoDurationSeconds,
         averageViewDurationSeconds: averageViewDurationSeconds,
         averageViewDurationPercentage: averageViewDurationPercentage,
-        avgViewDurationFormatted: avgViewDurationFromReport
+        avgViewDurationFormatted: avgViewDurationFromReport,
       },
-      dropOffPoints,                   // [{ time, percentage }, …]
-      keyMomentMarkers, 
+      dropOffPoints, // [{ time, percentage }, …]
+      keyMomentMarkers,
     };
-
   } catch (error) {
-    console.error('❌ BigQuery audience retention query error:', error);
+    console.error("❌ BigQuery audience retention query error:", error);
     return null;
   }
 }
 
 // BigQuery function for individual video analytics
-async function getBigQueryVideoAnalytics(videoId, writerId, range = 'lifetime') {
+async function getBigQueryVideoAnalytics(
+  videoId,
+  writerId,
+  range = "lifetime"
+) {
   try {
-    console.log(`🎬 BigQuery: Getting video analytics for video ${videoId}, writer ${writerId}, range: ${range}`);
+    console.log(
+      `🎬 BigQuery: Getting video analytics for video ${videoId}, writer ${writerId}, range: ${range}`
+    );
 
     // Use the global BigQuery client
     if (!global.bigqueryClient) {
-      throw new Error('BigQuery client not initialized');
+      throw new Error("BigQuery client not initialized");
     }
 
     const bigquery = global.bigqueryClient;
 
     // First, get the YouTube video ID from PostgreSQL video table URL
     const videoQuery = `SELECT url FROM video WHERE id = $1 AND writer_id = $2`;
-    const { rows: videoRows } = await pool.query(videoQuery, [parseInt(videoId), parseInt(writerId)]);
+    const { rows: videoRows } = await pool.query(videoQuery, [
+      parseInt(videoId),
+      parseInt(writerId),
+    ]);
 
     if (videoRows.length === 0) {
-      throw new Error(`Video with ID ${videoId} not found for writer ${writerId}`);
+      throw new Error(
+        `Video with ID ${videoId} not found for writer ${writerId}`
+      );
     }
 
     const videoUrl = videoRows[0].url;
     // Extract YouTube video ID from URL (e.g., "Rde8GGIRSqo" from "https://www.youtube.com/shorts/Rde8GGIRSqo")
     const youtubeVideoId = extractVideoId(videoUrl);
     if (!youtubeVideoId) {
-      throw new Error(`Could not extract YouTube video ID from URL: ${videoUrl}`);
+      throw new Error(
+        `Could not extract YouTube video ID from URL: ${videoUrl}`
+      );
     }
 
-    console.log(`🎬 Extracted YouTube video ID: ${youtubeVideoId} from URL: ${videoUrl}`);
+    console.log(
+      `🎬 Extracted YouTube video ID: ${youtubeVideoId} from URL: ${videoUrl}`
+    );
 
     // Get writer name from PostgreSQL
     const writerQuery = `SELECT name FROM writer WHERE id = $1`;
-    const { rows: writerRows } = await pool.query(writerQuery, [parseInt(writerId)]);
+    const { rows: writerRows } = await pool.query(writerQuery, [
+      parseInt(writerId),
+    ]);
 
     if (writerRows.length === 0) {
       throw new Error(`Writer with ID ${writerId} not found`);
@@ -1660,15 +1857,15 @@ async function getBigQueryVideoAnalytics(videoId, writerId, range = 'lifetime') 
     console.log(`🎬 Found writer name: ${writerName} for video analytics`);
 
     // Calculate date range
-    let dateCondition = '';
+    let dateCondition = "";
     let dateParam = null;
 
-    if (range !== 'lifetime') {
-      const days = parseInt(range.replace('d', '')) || 30;
+    if (range !== "lifetime") {
+      const days = parseInt(range.replace("d", "")) || 30;
       const startDate = new Date();
       startDate.setDate(startDate.getDate() - days);
-      dateParam = startDate.toISOString().split('T')[0];
-      dateCondition = 'AND date >= @startDate';
+      dateParam = startDate.toISOString().split("T")[0];
+      dateCondition = "AND date >= @startDate";
     }
 
     const projectId = process.env.BIGQUERY_PROJECT_ID || "speedy-web-461014-g3";
@@ -1708,7 +1905,7 @@ async function getBigQueryVideoAnalytics(videoId, writerId, range = 'lifetime') 
     // Build parameters using YouTube video ID
     const params = {
       writer_name: writerName,
-      video_id: youtubeVideoId
+      video_id: youtubeVideoId,
     };
 
     const options = { query, params };
@@ -1716,11 +1913,17 @@ async function getBigQueryVideoAnalytics(videoId, writerId, range = 'lifetime') 
 
     const [rows] = await bigquery.query(options);
 
-    console.log(`🎬 BigQuery returned ${rows.length} video records for video ${videoId}`);
+    console.log(
+      `🎬 BigQuery returned ${rows.length} video records for video ${videoId}`
+    );
 
     if (rows.length === 0) {
-      console.log(`❌ Video ${videoId} not found in BigQuery for writer ${writerName}`);
-      throw new Error(`Video ${videoId} not found in BigQuery for writer ${writerName}`);
+      console.log(
+        `❌ Video ${videoId} not found in BigQuery for writer ${writerName}`
+      );
+      throw new Error(
+        `Video ${videoId} not found in BigQuery for writer ${writerName}`
+      );
     }
 
     const video = rows[0];
@@ -1734,58 +1937,74 @@ async function getBigQueryVideoAnalytics(videoId, writerId, range = 'lifetime') 
       LEFT JOIN statistics_youtube_api ON CAST(video.id AS VARCHAR) = statistics_youtube_api.video_id
       WHERE video.id = $1
     `;
-    const { rows: durationRows } = await pool.query(durationQuery, [parseInt(videoId)]);
-    const duration = durationRows.length > 0 && durationRows[0].duration ? durationRows[0].duration : null;
+    const { rows: durationRows } = await pool.query(durationQuery, [
+      parseInt(videoId),
+    ]);
+    const duration =
+      durationRows.length > 0 && durationRows[0].duration
+        ? durationRows[0].duration
+        : null;
 
     if (!duration) {
-      console.log(`⚠️ No duration data available for video ${videoId} - using fallback`);
+      console.log(
+        `⚠️ No duration data available for video ${videoId} - using fallback`
+      );
     }
 
     // Calculate average view duration from BigQuery data
-    let avgViewDuration = '0:00';
+    let avgViewDuration = "0:00";
     if (video.average_view_duration_seconds) {
       const totalSeconds = Math.round(video.average_view_duration_seconds);
       const minutes = Math.floor(totalSeconds / 60);
       const seconds = totalSeconds % 60;
-      avgViewDuration = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+      avgViewDuration = `${minutes}:${seconds.toString().padStart(2, "0")}`;
     }
 
     // Get real audience retention data from BigQuery - PRIMARY SOURCE
     let retentionData = [];
     let stayedToWatch = Math.round(video.average_view_duration_percentage || 0);
-    let accountName = 'Unknown Account';
+    let accountName = "Unknown Account";
 
-    console.log(`📊 BigQuery PRIMARY: Getting audience retention for video ${videoId}, writer ${writerId}`);
-    const retentionResult = await getBigQueryAudienceRetention(videoId, writerId);
+    console.log(
+      `📊 BigQuery PRIMARY: Getting audience retention for video ${videoId}, writer ${writerId}`
+    );
+    const retentionResult = await getBigQueryAudienceRetention(
+      videoId,
+      writerId
+    );
 
     if (retentionResult) {
       retentionData = retentionResult.retentionData;
       // Use retention result's avgViewDuration if available, otherwise use calculated one
-      if (retentionResult.metrics.avgViewDuration !== '0:00') {
+      if (retentionResult.metrics.avgViewDuration !== "0:00") {
         avgViewDuration = retentionResult.metrics.avgViewDuration;
       }
       stayedToWatch = retentionResult.metrics.stayedToWatch;
       accountName = retentionResult.accountName;
 
       // Adjust time format based on actual video duration
-      const parts = duration.split(':');
+      const parts = duration.split(":");
       if (parts.length >= 2) {
         const totalSeconds = parseInt(parts[0]) * 60 + parseInt(parts[1]);
-        retentionData = retentionData.map(point => {
+        retentionData = retentionData.map((point) => {
           const actualSeconds = Math.floor(point.timeRatio * totalSeconds);
           const minutes = Math.floor(actualSeconds / 60);
           const seconds = actualSeconds % 60;
 
           return {
             ...point,
-            time: `${minutes}:${seconds.toString().padStart(2, '0')}`
+            time: `${minutes}:${seconds.toString().padStart(2, "0")}`,
           };
         });
       }
 
-      console.log(`✅ BigQuery PRIMARY: Using real retention data: ${retentionData.length} points, account: ${accountName}`);
+      console.log(
+        `✅ BigQuery PRIMARY: Using real retention data: ${retentionData.length} points, account: ${accountName}`
+      );
     } else {
-      console.log(`⚠️ BigQuery PRIMARY: No retention data found for video ${videoId}, using report data only`);
+      console.log(
+        `⚠️ BigQuery PRIMARY: No retention data found for video ${videoId}, using report data only`
+      );
       // Use the data from youtube_video_report_historical without throwing error
     }
 
@@ -1798,11 +2017,14 @@ async function getBigQueryVideoAnalytics(videoId, writerId, range = 'lifetime') 
         if (youtubeVideoId) {
           // Get writer name for BigQuery query
           const writerQuery = `SELECT name FROM writer WHERE id = $1`;
-          const { rows: writerRows } = await pool.query(writerQuery, [parseInt(writerId)]);
+          const { rows: writerRows } = await pool.query(writerQuery, [
+            parseInt(writerId),
+          ]);
           const writerName = writerRows[0]?.name;
 
           if (writerName) {
-            const projectId = process.env.BIGQUERY_PROJECT_ID || "speedy-web-461014-g3";
+            const projectId =
+              process.env.BIGQUERY_PROJECT_ID || "speedy-web-461014-g3";
             const dataset = "dbt_youtube_analytics";
 
             // 1️⃣ Get the writer's historic average views (excluding this video)
@@ -1823,24 +2045,34 @@ async function getBigQueryVideoAnalytics(videoId, writerId, range = 'lifetime') 
               query: avgViewsQuery,
               params: {
                 writer_name: writerName,
-                video_id: youtubeVideoId
-              }
+                video_id: youtubeVideoId,
+              },
             });
             const avgViews = avgRows[0]?.avg_views || 0;
             const videoCount = avgRows[0]?.video_count || 0;
 
             // 2️⃣ Compute percent increase vs. average
             const thisViews = parseInt(video.views || 0);
-            if (avgViews > 0 && videoCount >= 5) { // Need at least 5 videos for meaningful average
-              viewsIncrease = Math.round(((thisViews - avgViews) / avgViews) * 100);
+            if (avgViews > 0 && videoCount >= 5) {
+              // Need at least 5 videos for meaningful average
+              viewsIncrease = Math.round(
+                ((thisViews - avgViews) / avgViews) * 100
+              );
             }
 
-            console.log(`📊 BigQuery ViewsIncrease calculation: ${thisViews} views vs ${Math.round(avgViews)} avg (${videoCount} videos) = ${viewsIncrease}%`);
+            console.log(
+              `📊 BigQuery ViewsIncrease calculation: ${thisViews} views vs ${Math.round(
+                avgViews
+              )} avg (${videoCount} videos) = ${viewsIncrease}%`
+            );
           }
         }
       }
     } catch (viewsIncreaseError) {
-      console.error('⚠️ BigQuery path: Error calculating viewsIncrease, using 0:', viewsIncreaseError);
+      console.error(
+        "⚠️ BigQuery path: Error calculating viewsIncrease, using 0:",
+        viewsIncreaseError
+      );
       viewsIncrease = 0;
     }
 
@@ -1865,7 +2097,10 @@ async function getBigQueryVideoAnalytics(videoId, writerId, range = 'lifetime') 
       avgViewDurationPercentage: video.average_view_duration_percentage,
       watchTimeMinutes: video.watch_time_minutes,
       videoDurationSeconds: video.video_duration_seconds,
-      isShort: duration && duration.split(':')[0] === '0' && parseInt(duration.split(':')[1]) < 180,
+      isShort:
+        duration &&
+        duration.split(":")[0] === "0" &&
+        parseInt(duration.split(":")[1]) < 180,
       retentionRate: stayedToWatch,
       viewsIncrease: viewsIncrease,
       // Add metrics object for frontend compatibility
@@ -1874,10 +2109,14 @@ async function getBigQueryVideoAnalytics(videoId, writerId, range = 'lifetime') 
         avgViewDurationPercentage: video.average_view_duration_percentage,
         watchTimeMinutes: video.watch_time_minutes,
         avgViewDuration: video.average_view_duration,
-        avgViewDurationSeconds: video.average_view_duration_seconds
+        avgViewDurationSeconds: video.average_view_duration_seconds,
       },
       // High-quality thumbnails from BigQuery
-      preview: video.high_thumbnail_url || video.medium_thumbnail_url || video.default_thumbnail_url || `https://img.youtube.com/vi/${youtubeVideoId}/maxresdefault.jpg`,
+      preview:
+        video.high_thumbnail_url ||
+        video.medium_thumbnail_url ||
+        video.default_thumbnail_url ||
+        `https://img.youtube.com/vi/${youtubeVideoId}/maxresdefault.jpg`,
       highThumbnail: video.high_thumbnail_url,
       mediumThumbnail: video.medium_thumbnail_url,
       defaultThumbnail: video.default_thumbnail_url,
@@ -1885,23 +2124,20 @@ async function getBigQueryVideoAnalytics(videoId, writerId, range = 'lifetime') 
       retentionData: retentionData,
       accountName: video.account_name || accountName,
       writerName: video.writer_name,
-      publishDate: new Date().toLocaleDateString('en-US', {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric'
+      publishDate: new Date().toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "long",
+        day: "numeric",
       }),
-      needsViewsFromPostgres: true
+      needsViewsFromPostgres: true,
     };
 
     return videoData;
-
   } catch (error) {
-    console.error('❌ BigQuery video analytics query error:', error);
+    console.error("❌ BigQuery video analytics query error:", error);
     throw error;
   }
 }
-
-
 
 // Individual video data endpoint for VideoAnalytics page
 app.get("/api/video/:id", async (req, res) => {
@@ -1913,41 +2149,55 @@ app.get("/api/video/:id", async (req, res) => {
   }
 
   try {
-    console.log('🎬 Getting video details for ID:', id, 'Writer:', writer_id, 'Range:', range);
+    console.log(
+      "🎬 Getting video details for ID:",
+      id,
+      "Writer:",
+      writer_id,
+      "Range:",
+      range
+    );
 
     // Try BigQuery first for enhanced data (but not views)
     let bigQueryData = null;
     try {
-      console.log('🔍 Attempting BigQuery lookup for enhanced data:', id);
+      console.log("🔍 Attempting BigQuery lookup for enhanced data:", id);
       bigQueryData = await getBigQueryVideoAnalytics(id, writer_id, range);
       console.log(`✅ BigQuery enhanced data for ${id}:`, bigQueryData.title);
 
       // If BigQuery has enhanced data but needs views from PostgreSQL, continue to get views
       if (bigQueryData.needsViewsFromPostgres) {
-        console.log('🔄 BigQuery enhanced data found, now getting views from PostgreSQL/InfluxDB...');
+        console.log(
+          "🔄 BigQuery enhanced data found, now getting views from PostgreSQL/InfluxDB..."
+        );
       } else {
         // If BigQuery has complete data, return it
         return res.json(bigQueryData);
       }
     } catch (bigQueryError) {
-      console.error('❌ BigQuery error for video details:', bigQueryError.message);
-      console.log('🔄 Falling back to InfluxDB/PostgreSQL...');
+      console.error(
+        "❌ BigQuery error for video details:",
+        bigQueryError.message
+      );
+      console.log("🔄 Falling back to InfluxDB/PostgreSQL...");
     }
 
     // Fallback to InfluxDB
     try {
-      console.log('🔍 Querying InfluxDB for video ID:', id, 'Range:', range);
+      console.log("🔍 Querying InfluxDB for video ID:", id, "Range:", range);
 
       // Calculate date range for InfluxDB query
       let timeRange;
-      if (range === 'lifetime') {
-        timeRange = '-5y'; // Use 5 years for lifetime
+      if (range === "lifetime") {
+        timeRange = "-5y"; // Use 5 years for lifetime
       } else {
         timeRange = `-${range}d`;
       }
 
       // Query InfluxDB for specific video data - try multiple field patterns
-      console.log(`🔍 Searching InfluxDB for video ID: ${id} with time range: ${timeRange}`);
+      console.log(
+        `🔍 Searching InfluxDB for video ID: ${id} with time range: ${timeRange}`
+      );
 
       const query = `
         from(bucket: "${bucket}")
@@ -1959,15 +2209,23 @@ app.get("/api/video/:id", async (req, res) => {
 
       const results = await queryInfluxDB(query);
 
-      console.log(`✅ InfluxDB video query completed. Found ${results.length} records for video ${id}`);
+      console.log(
+        `✅ InfluxDB video query completed. Found ${results.length} records for video ${id}`
+      );
 
       if (results.length > 0) {
         console.log(`🎯 Using InfluxDB data for video ${id}`);
         const influxVideo = results[0];
 
         // Get additional metrics from InfluxDB
-        const totalData = await getVideoTotalData(influxVideo.url || '');
-        const chartData = await getVideoLineChartData(influxVideo.url || '', range || '7', start_date, end_date);
+        const totalData = await getVideoTotalData(influxVideo.url || "");
+        const chartData = await getVideoLineChartData(
+          influxVideo.url || "",
+          range || "7",
+          start_date,
+          end_date,
+          influxVideo.posted_date
+        );
 
         // Get actual duration from PostgreSQL statistics_youtube_api table
         const durationQuery = `
@@ -1976,20 +2234,32 @@ app.get("/api/video/:id", async (req, res) => {
           LEFT JOIN statistics_youtube_api ON CAST(video.id AS VARCHAR) = statistics_youtube_api.video_id
           WHERE video.id = $1
         `;
-        const { rows: durationRows } = await pool.query(durationQuery, [parseInt(id)]);
-        const duration = durationRows.length > 0 && durationRows[0].duration ? durationRows[0].duration : null;
+        const { rows: durationRows } = await pool.query(durationQuery, [
+          parseInt(id),
+        ]);
+        const duration =
+          durationRows.length > 0 && durationRows[0].duration
+            ? durationRows[0].duration
+            : null;
 
         if (!duration) {
-          console.log(`⚠️ No duration data available for video ${id} - using fallback duration`);
+          console.log(
+            `⚠️ No duration data available for video ${id} - using fallback duration`
+          );
         }
         // Get real audience retention data from BigQuery - PRIMARY SOURCE
         let retentionData = [];
-        let avgViewDuration =0;
+        let avgViewDuration = 0;
         let stayedToWatch = 0;
-        let accountName = 'Unknown Account';
+        let accountName = "Unknown Account";
 
-        console.log(`📊 BigQuery PRIMARY (InfluxDB path): Getting audience retention for video ${id}, writer ${writer_id}`);
-        const retentionResult = await getBigQueryAudienceRetention(id, writer_id);
+        console.log(
+          `📊 BigQuery PRIMARY (InfluxDB path): Getting audience retention for video ${id}, writer ${writer_id}`
+        );
+        const retentionResult = await getBigQueryAudienceRetention(
+          id,
+          writer_id
+        );
 
         if (retentionResult) {
           retentionData = retentionResult.retentionData;
@@ -1998,34 +2268,46 @@ app.get("/api/video/:id", async (req, res) => {
           accountName = retentionResult.accountName;
 
           // Adjust time format based on actual video duration
-          const parts = duration.split(':');
+          const parts = duration.split(":");
           if (parts.length >= 2) {
             const totalSeconds = parseInt(parts[0]) * 60 + parseInt(parts[1]);
-            console.log(`🕐 Video duration: ${duration} = ${totalSeconds} seconds`);
+            console.log(
+              `🕐 Video duration: ${duration} = ${totalSeconds} seconds`
+            );
 
             retentionData = retentionData.map((point, index) => {
               const actualSeconds = Math.floor(point.timeRatio * totalSeconds);
               const minutes = Math.floor(actualSeconds / 60);
               const seconds = actualSeconds % 60;
-              const timeStr = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+              const timeStr = `${minutes}:${seconds
+                .toString()
+                .padStart(2, "0")}`;
 
               // Log first few conversions for debugging
               if (index < 3) {
-                console.log(`🕐 Time conversion ${index}: ratio=${point.timeRatio} → ${actualSeconds}s → ${timeStr}`);
+                console.log(
+                  `🕐 Time conversion ${index}: ratio=${point.timeRatio} → ${actualSeconds}s → ${timeStr}`
+                );
               }
 
               return {
                 ...point,
-                time: timeStr
+                time: timeStr,
               };
             });
           }
 
-          console.log(`✅ BigQuery PRIMARY (InfluxDB path): Using real retention data: ${retentionData.length} points, account: ${accountName}`);
+          console.log(
+            `✅ BigQuery PRIMARY (InfluxDB path): Using real retention data: ${retentionData.length} points, account: ${accountName}`
+          );
         } else {
-          console.log(`❌ BigQuery PRIMARY (InfluxDB path): No retention data found for video ${id} - this should not happen in production`);
+          console.log(
+            `❌ BigQuery PRIMARY (InfluxDB path): No retention data found for video ${id} - this should not happen in production`
+          );
           // Only log error, don't use fallback - BigQuery should be the primary source
-          throw new Error(`No audience retention data available in BigQuery for video ${id}`);
+          throw new Error(
+            `No audience retention data available in BigQuery for video ${id}`
+          );
         }
 
         // Calculate real viewsIncrease using BigQuery data (no random values)
@@ -2037,11 +2319,14 @@ app.get("/api/video/:id", async (req, res) => {
             if (youtubeVideoId) {
               // Get writer name for BigQuery query
               const writerQuery = `SELECT name FROM writer WHERE id = $1`;
-              const { rows: writerRows } = await pool.query(writerQuery, [parseInt(writer_id)]);
+              const { rows: writerRows } = await pool.query(writerQuery, [
+                parseInt(writer_id),
+              ]);
               const writerName = writerRows[0]?.name;
 
               if (writerName) {
-                const projectId = process.env.BIGQUERY_PROJECT_ID || "speedy-web-461014-g3";
+                const projectId =
+                  process.env.BIGQUERY_PROJECT_ID || "speedy-web-461014-g3";
                 const dataset = "dbt_youtube_analytics";
 
                 // 1️⃣ Get the writer’s historic average views (excluding this video)
@@ -2062,24 +2347,34 @@ app.get("/api/video/:id", async (req, res) => {
                   query: avgViewsQuery,
                   params: {
                     writer_name: writerName,
-                    video_id: youtubeVideoId
-                  }
+                    video_id: youtubeVideoId,
+                  },
                 });
                 const avgViews = avgRows[0]?.avg_views || 0;
                 const videoCount = avgRows[0]?.video_count || 0;
 
                 // 2️⃣ Compute percent increase vs. average
                 const thisViews = totalData.views || influxVideo._value || 0;
-                if (avgViews > 0 && videoCount >= 5) { // Need at least 5 videos for meaningful average
-                  viewsIncrease = Math.round(((thisViews - avgViews) / avgViews) * 100);
+                if (avgViews > 0 && videoCount >= 5) {
+                  // Need at least 5 videos for meaningful average
+                  viewsIncrease = Math.round(
+                    ((thisViews - avgViews) / avgViews) * 100
+                  );
                 }
 
-                console.log(`📊 InfluxDB ViewsIncrease calculation: ${thisViews} views vs ${Math.round(avgViews)} avg (${videoCount} videos) = ${viewsIncrease}%`);
+                console.log(
+                  `📊 InfluxDB ViewsIncrease calculation: ${thisViews} views vs ${Math.round(
+                    avgViews
+                  )} avg (${videoCount} videos) = ${viewsIncrease}%`
+                );
               }
             }
           }
         } catch (viewsIncreaseError) {
-          console.error('⚠️ InfluxDB path: Error calculating viewsIncrease, using 0:', viewsIncreaseError);
+          console.error(
+            "⚠️ InfluxDB path: Error calculating viewsIncrease, using 0:",
+            viewsIncreaseError
+          );
           viewsIncrease = 0;
         }
 
@@ -2087,12 +2382,12 @@ app.get("/api/video/:id", async (req, res) => {
         const videoData = {
           id: id,
           title: bigQueryData?.title || influxVideo.title || `Video ${id}`,
-          description: bigQueryData?.description || '',
-          channelTitle: bigQueryData?.channelTitle || '',
-          url: bigQueryData?.url || influxVideo.url || '',
+          description: bigQueryData?.description || "",
+          channelTitle: bigQueryData?.channelTitle || "",
+          url: bigQueryData?.url || influxVideo.url || "",
           // Views from InfluxDB (original source)
           views: totalData.views || influxVideo._value || 0,
-          
+
           // Engagement from BigQuery if available, otherwise InfluxDB
           likes: bigQueryData?.likes || totalData.likes || 0,
           comments: bigQueryData?.comments || totalData.comments || 0,
@@ -2107,7 +2402,10 @@ app.get("/api/video/:id", async (req, res) => {
           avgViewDurationPercentage: bigQueryData?.avgViewDurationPercentage,
           watchTimeMinutes: bigQueryData?.watchTimeMinutes,
           videoDurationSeconds: bigQueryData?.videoDurationSeconds,
-          isShort: bigQueryData?.isShort !== undefined ? bigQueryData.isShort : (getVideoType(influxVideo.url) === 'short'),
+          isShort:
+            bigQueryData?.isShort !== undefined
+              ? bigQueryData.isShort
+              : getVideoType(influxVideo.url) === "short",
           viewsIncrease: viewsIncrease,
           retentionRate: bigQueryData?.retentionRate || stayedToWatch,
           // Add metrics object for frontend compatibility
@@ -2116,10 +2414,17 @@ app.get("/api/video/:id", async (req, res) => {
             avgViewDurationPercentage: bigQueryData?.avgViewDurationPercentage,
             watchTimeMinutes: bigQueryData?.watchTimeMinutes,
             avgViewDuration: bigQueryData?.avgViewDuration,
-            avgViewDurationSeconds: bigQueryData?.avgViewDurationSeconds
+            avgViewDurationSeconds: bigQueryData?.avgViewDurationSeconds,
           },
           // Thumbnails from BigQuery if available, otherwise InfluxDB
-          preview: bigQueryData?.preview || influxVideo.preview || (influxVideo.url ? `https://img.youtube.com/vi/${extractVideoId(influxVideo.url)}/maxresdefault.jpg` : ""),
+          preview:
+            bigQueryData?.preview ||
+            influxVideo.preview ||
+            (influxVideo.url
+              ? `https://img.youtube.com/vi/${extractVideoId(
+                  influxVideo.url
+                )}/maxresdefault.jpg`
+              : ""),
           highThumbnail: bigQueryData?.highThumbnail,
           mediumThumbnail: bigQueryData?.mediumThumbnail,
           defaultThumbnail: bigQueryData?.defaultThumbnail,
@@ -2129,24 +2434,39 @@ app.get("/api/video/:id", async (req, res) => {
           retentionData: bigQueryData?.retentionData || retentionData,
           accountName: bigQueryData?.accountName || accountName,
           writerName: bigQueryData?.writerName,
-          publishDate: bigQueryData?.publishDate,
-          influxData: totalData // Keep this for reference
+          // Use consistent published date format - same as content page
+          publishDate:
+            bigQueryData?.publishDate ||
+            (influxVideo.posted_date
+              ? new Date(influxVideo.posted_date).toLocaleDateString("en-US", {
+                  year: "numeric",
+                  month: "long",
+                  day: "numeric",
+                })
+              : "Unknown Date"),
+          posted_date: bigQueryData?.posted_date || influxVideo.posted_date,
+          influxData: totalData, // Keep this for reference
         };
 
-        console.log(`✅ Returning InfluxDB data for video: ${videoData.title} (${videoData.views} views)`);
+        console.log(
+          `✅ Returning InfluxDB data for video: ${videoData.title} (${videoData.views} views)`
+        );
         console.log(`📊 Chart data points: ${chartData.length}`);
         return res.json(videoData);
       }
 
       // If no InfluxDB data found, fall back to PostgreSQL
-      console.log('⚠️ No video found in InfluxDB, trying PostgreSQL fallback');
+      console.log("⚠️ No video found in InfluxDB, trying PostgreSQL fallback");
     } catch (influxError) {
-      console.error('❌ InfluxDB error for video details, trying PostgreSQL fallback:', influxError);
+      console.error(
+        "❌ InfluxDB error for video details, trying PostgreSQL fallback:",
+        influxError
+      );
     }
 
     // Fallback to PostgreSQL
     if (pool) {
-      console.log('🔄 Using PostgreSQL fallback for video details');
+      console.log("🔄 Using PostgreSQL fallback for video details");
 
       // First, let's check if the video exists at all (debug query)
       const debugQuery = `
@@ -2181,7 +2501,7 @@ app.get("/api/video/:id", async (req, res) => {
           writer_id: debugVideo.writer_id,
           video_cat: debugVideo.video_cat,
           stats_video_id: debugVideo.stats_video_id,
-          has_youtube_url: debugVideo.url?.includes('youtube.com') || false
+          has_youtube_url: debugVideo.url?.includes("youtube.com") || false,
         });
       } else {
         console.log(`❌ Debug: Video ${id} does not exist in video table`);
@@ -2208,7 +2528,9 @@ app.get("/api/video/:id", async (req, res) => {
           AND video.writer_id = $2;
       `;
       const queryParams = [parseInt(id), parseInt(writer_id)];
-      console.log(`🔍 PostgreSQL query with writer filter: video ${id}, writer ${writer_id}`);
+      console.log(
+        `🔍 PostgreSQL query with writer filter: video ${id}, writer ${writer_id}`
+      );
 
       const { rows } = await pool.query(videoQuery, queryParams);
 
@@ -2219,17 +2541,20 @@ app.get("/api/video/:id", async (req, res) => {
 
         if (debugVideo.writer_id !== parseInt(writer_id)) {
           reason = `Access denied: video belongs to writer ${debugVideo.writer_id}, you are writer ${writer_id}`;
-        } else if (debugVideo.video_cat === 'full to short') {
+        } else if (debugVideo.video_cat === "full to short") {
           reason = `Video type: full to short (now included)`;
-        } else if (!debugVideo.url?.includes('youtube.com')) {
+        } else if (!debugVideo.url?.includes("youtube.com")) {
           reason = `Not a YouTube video: URL is '${debugVideo.url}'`;
         } else if (!debugVideo.account_id) {
           reason = `Video has no account mapping (account_id is NULL)`;
         }
 
-        console.log(`❌ Video ${id} not found in PostgreSQL with filters. Reason: ${reason}`);
+        console.log(
+          `❌ Video ${id} not found in PostgreSQL with filters. Reason: ${reason}`
+        );
         return res.status(403).json({
-          error: "Access denied: You can only view videos that belong to your account",
+          error:
+            "Access denied: You can only view videos that belong to your account",
           debug: {
             video_exists: true,
             video_id: debugVideo.id,
@@ -2237,13 +2562,15 @@ app.get("/api/video/:id", async (req, res) => {
             your_writer_id: writer_id,
             video_cat: debugVideo.video_cat,
             url: debugVideo.url,
-            reason: reason
-          }
+            reason: reason,
+          },
         });
       }
 
       const video = rows[0];
-      console.log(`📹 Found video in PostgreSQL: ID=${video.id}, Title="${video.title}", URL="${video.url}"`);
+      console.log(
+        `📹 Found video in PostgreSQL: ID=${video.id}, Title="${video.title}", URL="${video.url}"`
+      );
       console.log(`📊 Raw video data from database:`, {
         id: video.id,
         duration: video.duration,
@@ -2251,69 +2578,86 @@ app.get("/api/video/:id", async (req, res) => {
         likes_total: video.likes_total,
         comments_total: video.comments_total,
         posted_date: video.posted_date,
-        preview: video.preview
+        preview: video.preview,
       });
 
       // Log if video has no duration data but continue processing
       if (!video.duration) {
-        console.log(`⚠️ Video ${id} has no duration data - will use fallback duration`);
+        console.log(
+          `⚠️ Video ${id} has no duration data - will use fallback duration`
+        );
       }
 
       // Use actual duration from database (no fallbacks)
       const duration = video.duration;
-      console.log(`✅ Using duration from statistics_youtube_api.duration: "${duration}"`);
+      console.log(
+        `✅ Using duration from statistics_youtube_api.duration: "${duration}"`
+      );
 
       // Determine video type based on duration (< 3 minutes = short, >= 3 minutes = video)
-      let videoType = 'video'; // default
+      let videoType = "video"; // default
       let isShort = false;
-      const fallbackDuration = duration || '0:00'; // Use fallback if duration is missing
+      const fallbackDuration = duration || "0:00"; // Use fallback if duration is missing
 
       if (duration) {
-        const parts = duration.split(':');
+        const parts = duration.split(":");
         if (parts.length >= 2) {
           const minutes = parseInt(parts[0]) || 0;
           const seconds = parseInt(parts[1]) || 0;
           const totalSeconds = minutes * 60 + seconds;
 
-          if (totalSeconds < 180) { // Less than 3 minutes (180 seconds)
-            videoType = 'short';
+          if (totalSeconds < 180) {
+            // Less than 3 minutes (180 seconds)
+            videoType = "short";
             isShort = true;
           }
         }
       } else {
         // If no duration data, assume it's a video (not short) as default
-        console.log(`⚠️ No duration data for video ${id}, defaulting to video type`);
+        console.log(
+          `⚠️ No duration data for video ${id}, defaulting to video type`
+        );
       }
 
-      console.log(`🎬 Video type determined by duration: ${videoType}, Duration: ${duration}, isShort: ${isShort}`);
+      console.log(
+        `🎬 Video type determined by duration: ${videoType}, Duration: ${duration}, isShort: ${isShort}`
+      );
 
       // Format the posted date properly
-      let formattedDate = 'Unknown Date';
+      let formattedDate = "Unknown Date";
       if (video.posted_date) {
         try {
           const date = new Date(video.posted_date);
-          formattedDate = date.toLocaleDateString('en-US', {
-            year: 'numeric',
-            month: 'long',
-            day: 'numeric'
+          formattedDate = date.toLocaleDateString("en-US", {
+            year: "numeric",
+            month: "long",
+            day: "numeric",
           });
         } catch (dateError) {
-          console.error('❌ Error formatting date:', dateError);
+          console.error("❌ Error formatting date:", dateError);
         }
       }
 
-      // Generate chart data for individual video (using mock data for now)
-      // Individual videos use mock chart data, not BigQuery
-      const chartData = generateMockViewsChartData(video.views_total || 0, range);
+      // Get real chart data from InfluxDB for individual video, filtered by published date
+      const chartData = await getVideoLineChartData(
+        video.url,
+        range,
+        start_date,
+        end_date,
+        video.posted_date
+      );
 
       // Try to get real audience retention data from BigQuery, fallback to mock if not available
       let retentionData = 0;
       let avgViewDuration = 0;
       let stayedToWatch = 0;
-      let accountName = 'Unknown Account';
+      let accountName = "Unknown Account";
 
       try {
-        const retentionResult = await getBigQueryAudienceRetention(video.id, video.writer_id);
+        const retentionResult = await getBigQueryAudienceRetention(
+          video.id,
+          video.writer_id
+        );
         if (retentionResult) {
           retentionData = retentionResult.retentionData;
           avgViewDuration = retentionResult.metrics.avgViewDuration;
@@ -2322,34 +2666,47 @@ app.get("/api/video/:id", async (req, res) => {
 
           // Adjust time format based on actual video duration
           if (duration) {
-            const parts = duration.split(':');
+            const parts = duration.split(":");
             if (parts.length >= 2) {
               const totalSeconds = parseInt(parts[0]) * 60 + parseInt(parts[1]);
-              console.log(`🕐 PostgreSQL path - Video duration: ${duration} = ${totalSeconds} seconds`);
+              console.log(
+                `🕐 PostgreSQL path - Video duration: ${duration} = ${totalSeconds} seconds`
+              );
 
               retentionData = retentionData.map((point, index) => {
-                const actualSeconds = Math.floor(point.timeRatio * totalSeconds);
+                const actualSeconds = Math.floor(
+                  point.timeRatio * totalSeconds
+                );
                 const minutes = Math.floor(actualSeconds / 60);
                 const seconds = actualSeconds % 60;
-                const timeStr = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+                const timeStr = `${minutes}:${seconds
+                  .toString()
+                  .padStart(2, "0")}`;
 
                 // Log first few conversions for debugging
                 if (index < 3) {
-                  console.log(`🕐 PostgreSQL time conversion ${index}: ratio=${point.timeRatio} → ${actualSeconds}s → ${timeStr}`);
+                  console.log(
+                    `🕐 PostgreSQL time conversion ${index}: ratio=${point.timeRatio} → ${actualSeconds}s → ${timeStr}`
+                  );
                 }
 
                 return {
                   ...point,
-                  time: timeStr
+                  time: timeStr,
                 };
               });
             }
           }
 
-          console.log(`📊 PostgreSQL path: Using real retention data: ${retentionData.length} points, account: ${accountName}`);
+          console.log(
+            `📊 PostgreSQL path: Using real retention data: ${retentionData.length} points, account: ${accountName}`
+          );
         }
       } catch (retentionError) {
-        console.error('⚠️ PostgreSQL path: Error getting retention data, using fallback:', retentionError);
+        console.error(
+          "⚠️ PostgreSQL path: Error getting retention data, using fallback:",
+          retentionError
+        );
       }
 
       // Calculate real viewsIncrease using BigQuery data (no random values)
@@ -2361,11 +2718,14 @@ app.get("/api/video/:id", async (req, res) => {
           if (youtubeVideoId) {
             // Get writer name for BigQuery query
             const writerQuery = `SELECT name FROM writer WHERE id = $1`;
-            const { rows: writerRows } = await pool.query(writerQuery, [parseInt(video.writer_id)]);
+            const { rows: writerRows } = await pool.query(writerQuery, [
+              parseInt(video.writer_id),
+            ]);
             const writerName = writerRows[0]?.name;
 
             if (writerName) {
-              const projectId = process.env.BIGQUERY_PROJECT_ID || "speedy-web-461014-g3";
+              const projectId =
+                process.env.BIGQUERY_PROJECT_ID || "speedy-web-461014-g3";
               const dataset = "dbt_youtube_analytics";
 
               // 1️⃣ Get the writer's historic average views (excluding this video)
@@ -2386,24 +2746,34 @@ app.get("/api/video/:id", async (req, res) => {
                 query: avgViewsQuery,
                 params: {
                   writer_name: writerName,
-                  video_id: youtubeVideoId
-                }
+                  video_id: youtubeVideoId,
+                },
               });
               const avgViews = avgRows[0]?.avg_views || 0;
               const videoCount = avgRows[0]?.video_count || 0;
 
               // 2️⃣ Compute percent increase vs. average
               const thisViews = video.views_total || 0;
-              if (avgViews > 0 && videoCount >= 5) { // Need at least 5 videos for meaningful average
-                viewsIncrease = Math.round(((thisViews - avgViews) / avgViews) * 100);
+              if (avgViews > 0 && videoCount >= 5) {
+                // Need at least 5 videos for meaningful average
+                viewsIncrease = Math.round(
+                  ((thisViews - avgViews) / avgViews) * 100
+                );
               }
 
-              console.log(`📊 PostgreSQL ViewsIncrease calculation: ${thisViews} views vs ${Math.round(avgViews)} avg (${videoCount} videos) = ${viewsIncrease}%`);
+              console.log(
+                `📊 PostgreSQL ViewsIncrease calculation: ${thisViews} views vs ${Math.round(
+                  avgViews
+                )} avg (${videoCount} videos) = ${viewsIncrease}%`
+              );
             }
           }
         }
       } catch (viewsIncreaseError) {
-        console.error('⚠️ Error calculating viewsIncrease, using 0:', viewsIncreaseError);
+        console.error(
+          "⚠️ Error calculating viewsIncrease, using 0:",
+          viewsIncreaseError
+        );
         viewsIncrease = 0;
       }
 
@@ -2411,11 +2781,11 @@ app.get("/api/video/:id", async (req, res) => {
       const videoData = {
         id: video.id,
         title: bigQueryData?.title || video.title || "Untitled Video",
-        description: bigQueryData?.description || '',
-        channelTitle: bigQueryData?.channelTitle || '',
+        description: bigQueryData?.description || "",
+        channelTitle: bigQueryData?.channelTitle || "",
         url: bigQueryData?.url || video.url,
-        thumbnail: isShort ? '🎯' : '📺',
-        color: isShort ? '#4CAF50' : '#2196F3',
+        thumbnail: isShort ? "🎯" : "📺",
+        color: isShort ? "#4CAF50" : "#2196F3",
         // Duration from BigQuery if available, otherwise PostgreSQL, with fallback
         duration: bigQueryData?.duration || fallbackDuration,
         // Views from PostgreSQL (original source)
@@ -2441,13 +2811,21 @@ app.get("/api/video/:id", async (req, res) => {
           avgViewDurationPercentage: bigQueryData?.avgViewDurationPercentage,
           watchTimeMinutes: bigQueryData?.watchTimeMinutes,
           avgViewDuration: bigQueryData?.avgViewDuration,
-          avgViewDurationSeconds: bigQueryData?.avgViewDurationSeconds
+          avgViewDurationSeconds: bigQueryData?.avgViewDurationSeconds,
         },
-        isShort: bigQueryData?.isShort !== undefined ? bigQueryData.isShort : isShort,
+        isShort:
+          bigQueryData?.isShort !== undefined ? bigQueryData.isShort : isShort,
         publishDate: bigQueryData?.publishDate || formattedDate,
         posted_date: video.posted_date,
         // Thumbnails from BigQuery if available, otherwise PostgreSQL
-        preview: bigQueryData?.preview || video.preview || (video.url ? `https://img.youtube.com/vi/${extractVideoId(video.url)}/maxresdefault.jpg` : ""),
+        preview:
+          bigQueryData?.preview ||
+          video.preview ||
+          (video.url
+            ? `https://img.youtube.com/vi/${extractVideoId(
+                video.url
+              )}/maxresdefault.jpg`
+            : ""),
         highThumbnail: bigQueryData?.highThumbnail,
         mediumThumbnail: bigQueryData?.mediumThumbnail,
         defaultThumbnail: bigQueryData?.defaultThumbnail,
@@ -2458,10 +2836,12 @@ app.get("/api/video/:id", async (req, res) => {
         accountName: bigQueryData?.accountName || accountName,
         writerName: bigQueryData?.writerName,
         // Add debug info
-        writer_id: video.writer_id
+        writer_id: video.writer_id,
       };
 
-      console.log(`✅ Found video from PostgreSQL: ${videoData.title} (${videoData.views} views, type: ${videoType})`);
+      console.log(
+        `✅ Found video from PostgreSQL: ${videoData.title} (${videoData.views} views, type: ${videoType})`
+      );
       console.log(`📊 Chart data sample:`, videoData.chartData?.slice(0, 3));
       res.json(videoData);
     } else {
@@ -2477,7 +2857,7 @@ app.get("/api/video/:id", async (req, res) => {
 function generateAverageViewDuration(totalDuration) {
   if (!totalDuration) return "1:30";
 
-  const parts = totalDuration.split(':');
+  const parts = totalDuration.split(":");
   let totalSeconds = 0;
 
   if (parts.length === 2) {
@@ -2489,50 +2869,63 @@ function generateAverageViewDuration(totalDuration) {
   const minutes = Math.floor(avgSeconds / 60);
   const seconds = avgSeconds % 60;
 
-  return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
 }
 
 // Helper function to get video line chart data using your InfluxDB API
-async function getVideoLineChartData(url, timeRange = '7d', customStartDate = null, customEndDate = null) {
+async function getVideoLineChartData(
+  url,
+  timeRange = "7d",
+  customStartDate = null,
+  customEndDate = null,
+  publishedDate = null
+) {
   if (!url) {
-    console.log('⚠️ No URL provided for line chart data');
-    return generateMockViewsChartData(0, timeRange);
+    console.log("⚠️ No URL provided for line chart data");
+    return []; // Return empty array instead of mock data
   }
 
   try {
-    console.log(`📈 Getting InfluxDB line chart data for URL: ${url}, Range: ${timeRange}`);
+    console.log(
+      `📈 Getting InfluxDB line chart data for URL: ${url}, Range: ${timeRange}`
+    );
+    console.log(`🔍 DEBUG: Video URL being queried: "${url}"`);
 
     let influxRange;
     let startDate, endDate;
 
     // Handle custom date range
-    if (timeRange === 'custom' && customStartDate && customEndDate) {
+    if (timeRange === "custom" && customStartDate && customEndDate) {
       startDate = new Date(customStartDate);
       endDate = new Date(customEndDate);
-      console.log(`📈 Using custom date range: ${customStartDate} to ${customEndDate}`);
+      console.log(
+        `📈 Using custom date range: ${customStartDate} to ${customEndDate}`
+      );
 
       // For InfluxDB, we'll use the start date directly
       influxRange = startDate.toISOString();
     } else {
       // Convert frontend range values to proper format
-      if (timeRange === 'lifetime') {
-        influxRange = '-2y'; // 2 years for lifetime
+      if (timeRange === "lifetime") {
+        influxRange = "-2y"; // 2 years for lifetime
       } else {
         // Handle numeric values from frontend (7, 14, 28, 90, 365)
-        const days = parseInt(timeRange.toString().replace('d', '')) || 7;
+        const days = parseInt(timeRange.toString().replace("d", "")) || 7;
         influxRange = `-${days}d`;
       }
 
-      console.log(`📈 Converted range '${timeRange}' to InfluxDB format '${influxRange}'`);
+      console.log(
+        `📈 Converted range '${timeRange}' to InfluxDB format '${influxRange}'`
+      );
 
       // Calculate date range for non-custom ranges
       endDate = new Date();
       startDate = new Date();
 
-      if (timeRange === 'lifetime') {
+      if (timeRange === "lifetime") {
         startDate.setFullYear(startDate.getFullYear() - 2); // 2 years for lifetime
       } else {
-        const days = parseInt(timeRange.toString().replace('d', '')) || 7;
+        const days = parseInt(timeRange.toString().replace("d", "")) || 7;
         startDate.setDate(startDate.getDate() - days);
       }
     }
@@ -2540,8 +2933,10 @@ async function getVideoLineChartData(url, timeRange = '7d', customStartDate = nu
     // Use InfluxDB range format for better performance
     let query;
 
-    if (timeRange === 'custom' && customStartDate && customEndDate) {
-      console.log(`📈 Getting line chart data for URL: ${url}, Custom Range: ${customStartDate} to ${customEndDate}`);
+    if (timeRange === "custom" && customStartDate && customEndDate) {
+      console.log(
+        `📈 Getting line chart data for URL: ${url}, Custom Range: ${customStartDate} to ${customEndDate}`
+      );
       query = `
         from(bucket: "youtube_api")
           |> range(start: ${startDate.toISOString()}, stop: ${endDate.toISOString()})
@@ -2553,7 +2948,9 @@ async function getVideoLineChartData(url, timeRange = '7d', customStartDate = nu
           |> sort(columns: ["_time"], desc: false)
       `;
     } else {
-      console.log(`📈 Getting line chart data for URL: ${url}, InfluxDB Range: ${influxRange}`);
+      console.log(
+        `📈 Getting line chart data for URL: ${url}, InfluxDB Range: ${influxRange}`
+      );
       query = `
         from(bucket: "youtube_api")
           |> range(start: ${influxRange})
@@ -2567,31 +2964,87 @@ async function getVideoLineChartData(url, timeRange = '7d', customStartDate = nu
     }
 
     const result = await queryInfluxDB(query);
-    console.log(`📊 InfluxDB line chart query returned ${result.length} data points`);
+    console.log(
+      `📊 InfluxDB line chart query returned ${result.length} data points`
+    );
 
     if (result.length > 0) {
+      // Sort by timestamp first to ensure chronological order
+      result.sort((a, b) => new Date(a._time) - new Date(b._time));
+
+      console.log(`🔍 DEBUG: Raw InfluxDB data for URL "${url}":`, {
+        totalPoints: result.length,
+        firstPoint: result[0]
+          ? {
+              time: result[0]._time,
+              value: result[0]._value,
+              url: result[0].url,
+            }
+          : null,
+        lastPoint: result[result.length - 1]
+          ? {
+              time: result[result.length - 1]._time,
+              value: result[result.length - 1]._value,
+              url: result[result.length - 1].url,
+            }
+          : null,
+      });
+
+      // Filter data to only include dates after the video was published
+      let filteredResult = result;
+      if (publishedDate) {
+        const publishedTimestamp = new Date(publishedDate).getTime();
+        filteredResult = result.filter((item) => {
+          const itemTimestamp = new Date(item._time).getTime();
+          return itemTimestamp >= publishedTimestamp;
+        });
+
+        console.log(
+          `🔍 DEBUG: Filtered chart data by published date ${publishedDate}:`
+        );
+        console.log(
+          `📊 Original data points: ${result.length}, After filtering: ${filteredResult.length}`
+        );
+
+        if (filteredResult.length === 0) {
+          console.log(
+            `⚠️ No chart data found after video published date ${publishedDate}`
+          );
+          return [];
+        }
+      }
+
       // Transform to chart format using _value field with proper date formatting
-      const chartData = result.map((item, index) => {
+      const chartData = filteredResult.map((item, index) => {
         const date = new Date(item._time);
         return {
           day: index,
           views: item._value || 0,
-          date: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+          date: date.toLocaleDateString("en-US", {
+            month: "short",
+            day: "numeric",
+          }),
           fullDate: date.toISOString(),
-          timestamp: item._time
+          timestamp: item._time,
         };
       });
 
-      console.log(`✅ InfluxDB line chart data processed: ${chartData.length} points`);
-      console.log(`📊 Sample data point:`, chartData[0]);
+      console.log(
+        `✅ InfluxDB line chart data processed: ${chartData.length} points (sorted chronologically)`
+      );
+      console.log(
+        `📊 Chart date range: ${chartData[0]?.date} to ${
+          chartData[chartData.length - 1]?.date
+        }`
+      );
       return chartData;
     } else {
-      console.log('⚠️ No InfluxDB line chart data found, using mock data');
-      return generateMockViewsChartData(0, timeRange);
+      console.log("⚠️ No InfluxDB line chart data found for this video");
+      return []; // Return empty array instead of mock data
     }
   } catch (error) {
-    console.error('❌ Error getting video line chart data:', error);
-    return generateMockViewsChartData(0, timeRange);
+    console.error("❌ Error getting video line chart data:", error);
+    return []; // Return empty array instead of mock data
   }
 }
 
@@ -2602,7 +3055,7 @@ async function getVideoTotalData(url) {
   }
 
   try {
-    const fields = ['views', 'likes', 'comments'];
+    const fields = ["views", "likes", "comments"];
     const totalData = {};
 
     for (let field of fields) {
@@ -2623,7 +3076,11 @@ async function getVideoTotalData(url) {
           // Use the field name directly from the result
           const value = result[0][field] || result[0]._value || 0;
           totalData[field] = value;
-          console.log(`📊 InfluxDB ${field} for ${url}: ${value} (from ${result[0]._value ? '_value' : field} field)`);
+          console.log(
+            `📊 InfluxDB ${field} for ${url}: ${value} (from ${
+              result[0]._value ? "_value" : field
+            } field)`
+          );
           console.log(`🔍 Full result object:`, result[0]);
         } else {
           totalData[field] = 0;
@@ -2637,15 +3094,19 @@ async function getVideoTotalData(url) {
 
     return totalData;
   } catch (error) {
-    console.error('❌ Error getting video total data:', error);
+    console.error("❌ Error getting video total data:", error);
     return { views: 0, likes: 0, comments: 0 };
   }
 }
 
 // Helper function to generate views chart data from InfluxDB historical data
-async function getVideoHistoricalData(influxService, videoId, timeRange = '7d') {
+async function getVideoHistoricalData(
+  influxService,
+  videoId,
+  timeRange = "7d"
+) {
   if (!influxService) {
-    return generateMockViewsChartData(0, timeRange);
+    return []; // Return empty array instead of mock data
   }
 
   try {
@@ -2666,41 +3127,43 @@ async function getVideoHistoricalData(influxService, videoId, timeRange = '7d') 
         const o = tableMeta.toObject(row);
         results.push({
           time: o._time,
-          views: o._value || 0
+          views: o._value || 0,
         });
       },
       error(error) {
-        console.error('❌ Error getting video historical data:', error);
+        console.error("❌ Error getting video historical data:", error);
       },
       complete() {
-        console.log(`📈 Historical data retrieved: ${results.length} data points for video ${videoId}`);
-      }
+        console.log(
+          `📈 Historical data retrieved: ${results.length} data points for video ${videoId}`
+        );
+      },
     });
 
     // Transform to chart format
     return results.map((item, index) => ({
       day: index,
       views: item.views,
-      date: new Date(item.time).toLocaleDateString()
+      date: new Date(item.time).toLocaleDateString(),
     }));
   } catch (error) {
-    console.error('❌ Error querying historical data:', error);
-    return generateMockViewsChartData(0, timeRange);
+    console.error("❌ Error querying historical data:", error);
+    return []; // Return empty array instead of mock data
   }
 }
 
 // Helper function to generate mock views chart data (fallback)
-function generateMockViewsChartData(totalViews, range = '7') {
+function generateMockViewsChartData(totalViews, range = "7") {
   const data = [];
   let currentViews = 0;
   const today = new Date();
 
   // Determine number of days based on range
   let days;
-  if (range === 'lifetime') {
+  if (range === "lifetime") {
     days = 30; // Use 30 days for lifetime
   } else {
-    days = parseInt(range.toString().replace('d', '')) || 7;
+    days = parseInt(range.toString().replace("d", "")) || 7;
   }
 
   // Limit to reasonable number of data points for chart performance
@@ -2712,18 +3175,24 @@ function generateMockViewsChartData(totalViews, range = '7') {
     const growthFactor = Math.pow(progress, 0.7); // Slower growth at start, faster later
     currentViews = Math.floor(totalViews * growthFactor);
 
-    // Create date for each day
+    // Create date for each day - start from oldest date and go forward
     const date = new Date(today);
     date.setDate(date.getDate() - (days - day));
 
     data.push({
       day,
       views: currentViews,
-      date: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+      date: date.toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+      }),
       fullDate: date.toISOString(),
-      timestamp: date.toISOString()
+      timestamp: date.toISOString(),
     });
   }
+
+  // Sort by timestamp to ensure chronological order
+  data.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
 
   return data;
 }
@@ -2732,7 +3201,7 @@ function generateMockViewsChartData(totalViews, range = '7') {
 function generateRetentionData(duration, avgViewDuration = null) {
   if (!duration) return [];
 
-  const parts = duration.split(':');
+  const parts = duration.split(":");
   let totalSeconds = 0;
 
   if (parts.length === 2) {
@@ -2749,7 +3218,7 @@ function generateRetentionData(duration, avgViewDuration = null) {
     const timeSeconds = Math.floor((totalSeconds * i) / intervals);
     const minutes = Math.floor(timeSeconds / 60);
     const seconds = timeSeconds % 60;
-    const timeStr = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+    const timeStr = `${minutes}:${seconds.toString().padStart(2, "0")}`;
 
     // Simulate realistic retention curve
     const progress = i / intervals;
@@ -2757,13 +3226,13 @@ function generateRetentionData(duration, avgViewDuration = null) {
 
     if (progress < 0.1) {
       // High retention at start (90-100%)
-      retention = 100 - (progress * 100);
+      retention = 100 - progress * 100;
     } else if (progress < 0.3) {
       // Gradual drop (70-90%)
-      retention = 90 - ((progress - 0.1) * 100);
+      retention = 90 - (progress - 0.1) * 100;
     } else {
       // Steady decline (40-70%)
-      retention = 70 - ((progress - 0.3) * 43);
+      retention = 70 - (progress - 0.3) * 43;
     }
 
     // Add some randomness but keep it realistic
@@ -2780,7 +3249,7 @@ function generateRetentionData(duration, avgViewDuration = null) {
       time: timeStr,
       percentage: Math.round(retention),
       keyMoment: keyMoment,
-      isKeyMoment: Math.abs(timeSeconds - keyMomentSeconds) < 5
+      isKeyMoment: Math.abs(timeSeconds - keyMomentSeconds) < 5,
     });
   }
 
@@ -2797,23 +3266,31 @@ app.get("/api/video/:id/analytics", async (req, res) => {
   }
 
   try {
-    console.log('📈 Getting time-series analytics for video ID:', id, 'Range:', range);
+    console.log(
+      "📈 Getting time-series analytics for video ID:",
+      id,
+      "Range:",
+      range
+    );
 
     // Initialize InfluxDB service
     let influxService;
     try {
-      const InfluxService = require('./services/influxService');
+      const InfluxService = require("./services/influxService");
       influxService = new InfluxService();
     } catch (error) {
-      console.error('❌ Failed to initialize InfluxDB for video analytics:', error);
+      console.error(
+        "❌ Failed to initialize InfluxDB for video analytics:",
+        error
+      );
     }
 
     if (influxService) {
       try {
         // Calculate time range
         let timeRange;
-        if (range === 'lifetime') {
-          timeRange = '-5y';
+        if (range === "lifetime") {
+          timeRange = "-5y";
         } else {
           timeRange = `-${range}d`;
         }
@@ -2836,15 +3313,17 @@ app.get("/api/video/:id/analytics", async (req, res) => {
             const o = tableMeta.toObject(row);
             viewsData.push({
               date: o._time,
-              views: o._value || 0
+              views: o._value || 0,
             });
           },
           error(error) {
-            console.error('❌ Error getting views time-series:', error);
+            console.error("❌ Error getting views time-series:", error);
           },
           complete() {
-            console.log(`📊 Views time-series retrieved: ${viewsData.length} data points`);
-          }
+            console.log(
+              `📊 Views time-series retrieved: ${viewsData.length} data points`
+            );
+          },
         });
 
         // Query for engagement data (likes, comments) - without pivot
@@ -2864,15 +3343,17 @@ app.get("/api/video/:id/analytics", async (req, res) => {
             engagementData.push({
               date: o._time,
               field: o._field,
-              value: o._value || 0
+              value: o._value || 0,
             });
           },
           error(error) {
-            console.error('❌ Error getting engagement time-series:', error);
+            console.error("❌ Error getting engagement time-series:", error);
           },
           complete() {
-            console.log(`💬 Engagement time-series retrieved: ${engagementData.length} data points`);
-          }
+            console.log(
+              `💬 Engagement time-series retrieved: ${engagementData.length} data points`
+            );
+          },
         });
 
         // Return structured analytics data
@@ -2881,33 +3362,41 @@ app.get("/api/video/:id/analytics", async (req, res) => {
           engagement: engagementData,
           summary: {
             totalViews: viewsData.reduce((sum, item) => sum + item.views, 0),
-            totalLikes: engagementData.reduce((sum, item) => sum + item.likes, 0),
-            totalComments: engagementData.reduce((sum, item) => sum + item.comments, 0),
+            totalLikes: engagementData.reduce(
+              (sum, item) => sum + item.likes,
+              0
+            ),
+            totalComments: engagementData.reduce(
+              (sum, item) => sum + item.comments,
+              0
+            ),
             dateRange: range,
-            dataPoints: viewsData.length
-          }
+            dataPoints: viewsData.length,
+          },
         };
 
-        console.log(`✅ Video analytics retrieved for ${id}: ${analyticsData.summary.totalViews} total views`);
+        console.log(
+          `✅ Video analytics retrieved for ${id}: ${analyticsData.summary.totalViews} total views`
+        );
         res.json(analyticsData);
         return;
       } catch (influxError) {
-        console.error('❌ InfluxDB error for video analytics:', influxError);
+        console.error("❌ InfluxDB error for video analytics:", influxError);
       }
     }
 
     // Fallback to mock analytics data
-    console.log('📝 Using mock analytics data for video:', id);
+    console.log("📝 Using mock analytics data for video:", id);
     const mockAnalytics = {
-      views:0,
+      views: 0,
       engagement: 0,
       summary: {
         totalViews: 0,
         totalLikes: 0,
         totalComments: 0,
         dateRange: 0,
-        dataPoints: 0
-      }
+        dataPoints: 0,
+      },
     };
 
     res.json(mockAnalytics);
@@ -2936,7 +3425,7 @@ async function isRepost(url) {
 }
 
 // InfluxDB client setup (using your existing pattern)
-const { InfluxDB } = require('@influxdata/influxdb-client');
+const { InfluxDB } = require("@influxdata/influxdb-client");
 
 const influxDB = new InfluxDB({
   url: process.env.INFLUXDB_URL,
@@ -2961,7 +3450,9 @@ const queryInfluxDB = async (query) => {
         reject(error);
       },
       complete() {
-        console.log(`✅ InfluxDB query completed. Found ${results.length} records`);
+        console.log(
+          `✅ InfluxDB query completed. Found ${results.length} records`
+        );
         resolve(results);
       },
     });
@@ -2971,7 +3462,10 @@ const queryInfluxDB = async (query) => {
 // InfluxDB Scorecard Data API (your existing endpoint)
 app.post("/api/influx/scorecard-data", async (req, res) => {
   const { url, field } = req.body;
-  const { measurement, field: adjustedField } = getMeasurementAndField(url, field);
+  const { measurement, field: adjustedField } = getMeasurementAndField(
+    url,
+    field
+  );
 
   try {
     // Determine if the video is a repost and select the appropriate bucket
@@ -3044,7 +3538,10 @@ app.post("/api/influx/scorecard-data", async (req, res) => {
 // InfluxDB Line Chart Data API (your existing endpoint)
 app.post("/api/influx/line-chart-data", async (req, res) => {
   const { url, startDate, endDate } = req.body;
-  const { measurement, field: adjustedField } = getMeasurementAndField(url, "views");
+  const { measurement, field: adjustedField } = getMeasurementAndField(
+    url,
+    "views"
+  );
 
   try {
     // Determine if the video is a repost and select the appropriate bucket
@@ -3076,7 +3573,7 @@ app.post("/api/influx/line-chart-data", async (req, res) => {
 
 // Helper functions for mock data
 function generateMockTimeSeriesData(range) {
-  const days = range === 'lifetime' ? 30 : parseInt(range) || 7;
+  const days = range === "lifetime" ? 30 : parseInt(range) || 7;
   const data = [];
 
   for (let i = 0; i < days; i++) {
@@ -3084,7 +3581,7 @@ function generateMockTimeSeriesData(range) {
     date.setDate(date.getDate() - (days - i - 1));
     data.push({
       date: date.toISOString(),
-      views: Math.floor(Math.random() * 5000) + 1000
+      views: Math.floor(Math.random() * 5000) + 1000,
     });
   }
 
@@ -3092,7 +3589,7 @@ function generateMockTimeSeriesData(range) {
 }
 
 function generateMockEngagementData(range) {
-  const days = range === 'lifetime' ? 30 : parseInt(range) || 7;
+  const days = range === "lifetime" ? 30 : parseInt(range) || 7;
   const data = [];
 
   for (let i = 0; i < days; i++) {
@@ -3101,7 +3598,7 @@ function generateMockEngagementData(range) {
     data.push({
       date: date.toISOString(),
       likes: Math.floor(Math.random() * 200) + 50,
-      comments: Math.floor(Math.random() * 20) + 5
+      comments: Math.floor(Math.random() * 20) + 5,
     });
   }
 
@@ -3660,20 +4157,25 @@ app.post("/api/getPostingAccount", async (req, res) => {
         code: error.code,
         detail: error.detail,
         hint: error.hint,
-        where: error.where
+        where: error.where,
       });
 
       // Fallback to the simple query if the function fails
       try {
         console.log("Attempting fallback to post_acct_list...");
-        const fallbackResult = await pool.query(`SELECT id, account FROM post_acct_list ORDER BY id LIMIT 1000`);
+        const fallbackResult = await pool.query(
+          `SELECT id, account FROM post_acct_list ORDER BY id LIMIT 1000`
+        );
         accounts = fallbackResult.rows;
-        console.log(`Fallback successful: Retrieved ${accounts.length} accounts`);
+        console.log(
+          `Fallback successful: Retrieved ${accounts.length} accounts`
+        );
 
         if (accounts.length === 0) {
           return res.status(400).json({
             success: false,
-            error: "No accounts available. Please check account status and usage limits.",
+            error:
+              "No accounts available. Please check account status and usage limits.",
           });
         }
       } catch (fallbackError) {
@@ -4005,9 +4507,9 @@ async function archiveCard(card, apiKey, token) {
 }
 
 // Debug endpoint to check account data and URL analysis
-app.get('/api/debug/accounts', async (req, res) => {
+app.get("/api/debug/accounts", async (req, res) => {
   try {
-    console.log('🔍 Debug: Checking account data relationships');
+    console.log("🔍 Debug: Checking account data relationships");
 
     // Check posting_accounts table
     const accountsQuery = `SELECT id, account FROM posting_accounts ORDER BY id`;
@@ -4030,8 +4532,8 @@ app.get('/api/debug/accounts', async (req, res) => {
     const { rows: videos } = await pool.query(videosQuery);
 
     // Analyze URLs to extract potential channel info
-    const videoAnalysis = videos.map(video => {
-      let detectedChannel = 'Unknown';
+    const videoAnalysis = videos.map((video) => {
+      let detectedChannel = "Unknown";
 
       // Try to extract channel info from URL
       if (video.url) {
@@ -4041,14 +4543,14 @@ app.get('/api/debug/accounts', async (req, res) => {
           detectedChannel = atMatch[1];
         }
         // Look for channel/ pattern
-        else if (video.url.includes('/channel/')) {
+        else if (video.url.includes("/channel/")) {
           const channelMatch = video.url.match(/\/channel\/([^\/\?&]+)/);
           if (channelMatch) {
             detectedChannel = `Channel_${channelMatch[1].substring(0, 10)}`;
           }
         }
         // Look for /c/ pattern
-        else if (video.url.includes('/c/')) {
+        else if (video.url.includes("/c/")) {
           const cMatch = video.url.match(/\/c\/([^\/\?&]+)/);
           if (cMatch) {
             detectedChannel = cMatch[1];
@@ -4066,7 +4568,7 @@ app.get('/api/debug/accounts', async (req, res) => {
         title: video.script_title,
         url: video.url,
         current_account_id: video.account_id,
-        detected_channel: detectedChannel
+        detected_channel: detectedChannel,
       };
     });
 
@@ -4097,32 +4599,36 @@ app.get('/api/debug/accounts', async (req, res) => {
         summary: {
           total_accounts: accounts.length,
           videos_analyzed: videoAnalysis.length,
-          videos_with_account_id: videoAnalysis.filter(v => v.current_account_id !== null).length,
-          successful_joins: joinResults.filter(r => r.account_name).length
+          videos_with_account_id: videoAnalysis.filter(
+            (v) => v.current_account_id !== null
+          ).length,
+          successful_joins: joinResults.filter((r) => r.account_name).length,
         },
         instructions: {
-          message: "Use the video_analysis to see detected channels and compare with posting_accounts",
-          next_step: "Use POST /api/debug/map-accounts to correct any mismatches"
-        }
-      }
+          message:
+            "Use the video_analysis to see detected channels and compare with posting_accounts",
+          next_step:
+            "Use POST /api/debug/map-accounts to correct any mismatches",
+        },
+      },
     });
   } catch (error) {
-    console.error('❌ Debug accounts error:', error);
+    console.error("❌ Debug accounts error:", error);
     res.status(500).json({ error: error.message });
   }
 });
 
 // Fix account_id for videos by extracting channel info from URLs
-app.get('/api/debug/fix-accounts', async (req, res) => {
+app.get("/api/debug/fix-accounts", async (req, res) => {
   try {
-    console.log('🔧 Debug: Fixing account_id for videos by analyzing URLs');
+    console.log("🔧 Debug: Fixing account_id for videos by analyzing URLs");
 
     // Get all posting accounts
     const accountsQuery = `SELECT id, account FROM posting_accounts ORDER BY id`;
     const { rows: accounts } = await pool.query(accountsQuery);
 
     if (accounts.length === 0) {
-      return res.json({ error: 'No posting accounts found' });
+      return res.json({ error: "No posting accounts found" });
     }
 
     // Get videos that need account_id fixing
@@ -4146,17 +4652,18 @@ app.get('/api/debug/fix-accounts', async (req, res) => {
 
         if (channelInfo) {
           // Try to match with posting accounts
-          const matchedAccount = accounts.find(acc =>
-            acc.account.toLowerCase().includes(channelInfo.toLowerCase()) ||
-            channelInfo.toLowerCase().includes(acc.account.toLowerCase())
+          const matchedAccount = accounts.find(
+            (acc) =>
+              acc.account.toLowerCase().includes(channelInfo.toLowerCase()) ||
+              channelInfo.toLowerCase().includes(acc.account.toLowerCase())
           );
 
           if (matchedAccount) {
             // Update video with correct account_id
-            await pool.query(
-              `UPDATE video SET account_id = $1 WHERE id = $2`,
-              [matchedAccount.id, video.id]
-            );
+            await pool.query(`UPDATE video SET account_id = $1 WHERE id = $2`, [
+              matchedAccount.id,
+              video.id,
+            ]);
             updatedCount++;
             results.push({
               video_id: video.id,
@@ -4164,7 +4671,7 @@ app.get('/api/debug/fix-accounts', async (req, res) => {
               url: video.url,
               detected_channel: channelInfo,
               matched_account: matchedAccount.account,
-              account_id: matchedAccount.id
+              account_id: matchedAccount.id,
             });
           } else {
             results.push({
@@ -4174,7 +4681,7 @@ app.get('/api/debug/fix-accounts', async (req, res) => {
               detected_channel: channelInfo,
               matched_account: null,
               account_id: null,
-              note: 'No matching account found'
+              note: "No matching account found",
             });
           }
         }
@@ -4184,7 +4691,7 @@ app.get('/api/debug/fix-accounts', async (req, res) => {
           video_id: video.id,
           title: video.script_title,
           url: video.url,
-          error: error.message
+          error: error.message,
         });
       }
     }
@@ -4196,19 +4703,19 @@ app.get('/api/debug/fix-accounts', async (req, res) => {
         total_analyzed: videos.length,
         updated_count: updatedCount,
         available_accounts: accounts,
-        results: results
-      }
+        results: results,
+      },
     });
   } catch (error) {
-    console.error('❌ Fix accounts error:', error);
+    console.error("❌ Fix accounts error:", error);
     res.status(500).json({ error: error.message });
   }
 });
 
 // Simple endpoint to reset all account_id to NULL so we can start fresh
-app.get('/api/debug/reset-accounts', async (req, res) => {
+app.get("/api/debug/reset-accounts", async (req, res) => {
   try {
-    console.log('🔄 Debug: Resetting all account_id to NULL');
+    console.log("🔄 Debug: Resetting all account_id to NULL");
 
     const resetQuery = `
       UPDATE video
@@ -4222,19 +4729,19 @@ app.get('/api/debug/reset-accounts', async (req, res) => {
       success: true,
       message: `Reset ${rowCount} videos to have NULL account_id`,
       data: {
-        reset_count: rowCount
-      }
+        reset_count: rowCount,
+      },
     });
   } catch (error) {
-    console.error('❌ Reset accounts error:', error);
+    console.error("❌ Reset accounts error:", error);
     res.status(500).json({ error: error.message });
   }
 });
 
 // Quick fix to map all videos to Requestedreads account (ID 796)
-app.get('/api/debug/fix-requestedreads', async (req, res) => {
+app.get("/api/debug/fix-requestedreads", async (req, res) => {
   try {
-    console.log('🔧 Debug: Mapping all videos to Requestedreads account');
+    console.log("🔧 Debug: Mapping all videos to Requestedreads account");
 
     const updateQuery = `
       UPDATE video
@@ -4251,19 +4758,19 @@ app.get('/api/debug/fix-requestedreads', async (req, res) => {
       data: {
         updated_count: rowCount,
         account_id: 796,
-        account_name: 'Requestedreads'
-      }
+        account_name: "Requestedreads",
+      },
     });
   } catch (error) {
-    console.error('❌ Fix Requestedreads error:', error);
+    console.error("❌ Fix Requestedreads error:", error);
     res.status(500).json({ error: error.message });
   }
 });
 
 // Check existing account mappings using the exact query you provided
-app.get('/api/debug/existing-account-mappings', async (req, res) => {
+app.get("/api/debug/existing-account-mappings", async (req, res) => {
   try {
-    console.log('🔍 Checking existing account mappings using your query');
+    console.log("🔍 Checking existing account mappings using your query");
 
     const mappingsQuery = `
       SELECT
@@ -4316,23 +4823,25 @@ app.get('/api/debug/existing-account-mappings', async (req, res) => {
         summary: {
           mapped: mappings.length,
           unmapped: nullCount[0].null_count,
-          total: totalCount[0].total_count
-        }
-      }
+          total: totalCount[0].total_count,
+        },
+      },
     });
   } catch (error) {
-    console.error('❌ Error checking existing account mappings:', error);
+    console.error("❌ Error checking existing account mappings:", error);
     res.status(500).json({
       error: error.message,
-      details: 'Failed to check existing account mappings'
+      details: "Failed to check existing account mappings",
     });
   }
 });
 
 // Smart account mapping based on URL analysis
-app.get('/api/debug/smart-account-mapping', async (req, res) => {
+app.get("/api/debug/smart-account-mapping", async (req, res) => {
   try {
-    console.log('🔧 Smart account mapping: Analyzing URLs and mapping to correct accounts');
+    console.log(
+      "🔧 Smart account mapping: Analyzing URLs and mapping to correct accounts"
+    );
 
     // First, get all posting accounts
     const accountsQuery = `
@@ -4343,7 +4852,10 @@ app.get('/api/debug/smart-account-mapping', async (req, res) => {
     `;
 
     const { rows: accounts } = await pool.query(accountsQuery);
-    console.log(`📋 Found ${accounts.length} posting accounts:`, accounts.map(a => `${a.id}: ${a.account}`));
+    console.log(
+      `📋 Found ${accounts.length} posting accounts:`,
+      accounts.map((a) => `${a.id}: ${a.account}`)
+    );
 
     // Get videos that need account mapping for writer 110
     const videosQuery = `
@@ -4363,7 +4875,7 @@ app.get('/api/debug/smart-account-mapping', async (req, res) => {
       total_videos: videos.length,
       mapped_count: 0,
       mapping_details: [],
-      account_distribution: {}
+      account_distribution: {},
     };
 
     // Helper function to extract channel info from YouTube URL
@@ -4371,11 +4883,13 @@ app.get('/api/debug/smart-account-mapping', async (req, res) => {
       if (!url) return null;
 
       // Extract video ID
-      const videoIdMatch = url.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/);
+      const videoIdMatch = url.match(
+        /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/
+      );
       const videoId = videoIdMatch ? videoIdMatch[1] : null;
 
       // Determine if it's a short
-      const isShort = url.includes('/shorts/');
+      const isShort = url.includes("/shorts/");
 
       // For now, we'll use URL patterns to guess the account
       // In a real scenario, you'd use YouTube API to get channel info
@@ -4385,7 +4899,7 @@ app.get('/api/debug/smart-account-mapping', async (req, res) => {
         isShort,
         url,
         // We'll map based on URL patterns or other logic
-        suggestedAccountId: null
+        suggestedAccountId: null,
       };
     }
 
@@ -4393,34 +4907,39 @@ app.get('/api/debug/smart-account-mapping', async (req, res) => {
     for (const video of videos) {
       const analysis = analyzeYouTubeURL(video.url);
       let targetAccountId = null;
-      let reason = '';
+      let reason = "";
 
       if (analysis) {
         // Example mapping logic - you can customize this based on your needs
         if (analysis.isShort) {
           // Map shorts to specific accounts
-          const shortsAccounts = accounts.filter(a =>
-            a.account.toLowerCase().includes('shorts') ||
-            a.account.toLowerCase().includes('short')
+          const shortsAccounts = accounts.filter(
+            (a) =>
+              a.account.toLowerCase().includes("shorts") ||
+              a.account.toLowerCase().includes("short")
           );
           if (shortsAccounts.length > 0) {
             targetAccountId = shortsAccounts[0].id;
-            reason = 'Mapped to shorts account';
+            reason = "Mapped to shorts account";
           }
         }
 
         // If no specific mapping found, use improved distribution logic
         if (!targetAccountId && accounts.length > 0) {
           // Exclude NoAvailableAccount and sample accounts for better distribution
-          const validAccounts = accounts.filter(a =>
-            a.id !== 99999 && // Exclude NoAvailableAccount
-            a.account !== 'sample' // Exclude sample account
+          const validAccounts = accounts.filter(
+            (a) =>
+              a.id !== 99999 && // Exclude NoAvailableAccount
+              a.account !== "sample" // Exclude sample account
           );
 
           if (validAccounts.length > 0) {
             // Use a combination of video ID and title hash for better distribution
-            const titleHash = video.script_title ? video.script_title.length : 0;
-            const distributionSeed = (parseInt(video.id) + titleHash) % validAccounts.length;
+            const titleHash = video.script_title
+              ? video.script_title.length
+              : 0;
+            const distributionSeed =
+              (parseInt(video.id) + titleHash) % validAccounts.length;
             targetAccountId = validAccounts[distributionSeed].id;
             reason = `Smart distribution (seed: ${distributionSeed}, account: ${validAccounts[distributionSeed].account})`;
           }
@@ -4436,7 +4955,9 @@ app.get('/api/debug/smart-account-mapping', async (req, res) => {
           await pool.query(updateQuery, [targetAccountId, video.id]);
           mappingResults.mapped_count++;
 
-          const accountName = accounts.find(a => a.id === targetAccountId)?.account || 'Unknown';
+          const accountName =
+            accounts.find((a) => a.id === targetAccountId)?.account ||
+            "Unknown";
 
           mappingResults.mapping_details.push({
             video_id: video.id,
@@ -4445,7 +4966,7 @@ app.get('/api/debug/smart-account-mapping', async (req, res) => {
             old_account_id: video.account_id,
             new_account_id: targetAccountId,
             account_name: accountName,
-            reason: reason
+            reason: reason,
           });
 
           // Track account distribution
@@ -4457,31 +4978,35 @@ app.get('/api/debug/smart-account-mapping', async (req, res) => {
       }
     }
 
-    console.log(`✅ Smart mapping completed: ${mappingResults.mapped_count}/${mappingResults.total_videos} videos mapped`);
-    console.log('📊 Account distribution:', mappingResults.account_distribution);
+    console.log(
+      `✅ Smart mapping completed: ${mappingResults.mapped_count}/${mappingResults.total_videos} videos mapped`
+    );
+    console.log(
+      "📊 Account distribution:",
+      mappingResults.account_distribution
+    );
 
     res.json({
       success: true,
       message: `Smart account mapping completed: ${mappingResults.mapped_count} videos mapped`,
-      data: mappingResults
+      data: mappingResults,
     });
-
   } catch (error) {
-    console.error('❌ Smart account mapping error:', error);
+    console.error("❌ Smart account mapping error:", error);
     res.status(500).json({
       error: error.message,
-      details: 'Failed to perform smart account mapping'
+      details: "Failed to perform smart account mapping",
     });
   }
 });
 
 // Manual account mapping endpoint for specific channels
-app.post('/api/debug/map-accounts', async (req, res) => {
+app.post("/api/debug/map-accounts", async (req, res) => {
   try {
     const { mappings } = req.body; // Array of { video_id, account_id }
 
     if (!mappings || !Array.isArray(mappings)) {
-      return res.status(400).json({ error: 'Invalid mappings format' });
+      return res.status(400).json({ error: "Invalid mappings format" });
     }
 
     let updatedCount = 0;
@@ -4503,21 +5028,21 @@ app.post('/api/debug/map-accounts', async (req, res) => {
             video_id: video_id,
             account_id: account_id,
             title: updateResult.rows[0].script_title,
-            status: 'updated'
+            status: "updated",
           });
         } else {
           results.push({
             video_id: video_id,
             account_id: account_id,
-            status: 'not_found'
+            status: "not_found",
           });
         }
       } catch (error) {
         results.push({
           video_id: mapping.video_id,
           account_id: mapping.account_id,
-          status: 'error',
-          error: error.message
+          status: "error",
+          error: error.message,
         });
       }
     }
@@ -4527,11 +5052,11 @@ app.post('/api/debug/map-accounts', async (req, res) => {
       message: `Updated ${updatedCount} videos with correct account mappings`,
       data: {
         updated_count: updatedCount,
-        results: results
-      }
+        results: results,
+      },
     });
   } catch (error) {
-    console.error('❌ Map accounts error:', error);
+    console.error("❌ Map accounts error:", error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -4541,13 +5066,13 @@ async function getChannelInfoFromUrl(url) {
   try {
     // Extract video ID
     const videoId = extractVideoId(url);
-    if (!videoId || videoId === 'dQw4w9WgXcQ') {
+    if (!videoId || videoId === "dQw4w9WgXcQ") {
       return null;
     }
 
     // For now, we'll extract channel info from the URL pattern
     // YouTube URLs can contain channel info in different ways
-    if (url.includes('@')) {
+    if (url.includes("@")) {
       // Handle @channel format
       const match = url.match(/@([^\/\?&]+)/);
       if (match) {
@@ -4559,14 +5084,14 @@ async function getChannelInfoFromUrl(url) {
     // For now, return a placeholder that indicates we need manual mapping
     return `Channel_for_${videoId}`;
   } catch (error) {
-    console.error('Error extracting channel info:', error);
+    console.error("Error extracting channel info:", error);
     return null;
   }
 }
 
 // Health check
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'OK', message: 'Writer Dashboard API is running' });
+app.get("/api/health", (req, res) => {
+  res.json({ status: "OK", message: "Writer Dashboard API is running" });
 });
 
 // Set up HTTP server and WebSocket server

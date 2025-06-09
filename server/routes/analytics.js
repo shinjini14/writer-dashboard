@@ -566,11 +566,12 @@ async function getPostgresContentVideosWithBigQueryNames(writerId, dateRange, pa
           SELECT DISTINCT
             video_id,
             account_name,
-            channel_title
+            channel_title,
+            video_duration_seconds
           FROM \`${projectId}.${dataset}.${reportTable}\`
           WHERE writer_name = @writer_name
             AND video_id IS NOT NULL
-            AND (account_name IS NOT NULL OR channel_title IS NOT NULL)
+            AND (account_name IS NOT NULL OR channel_title IS NOT NULL OR video_duration_seconds IS NOT NULL)
         `;
 
         const [bigQueryRows] = await bigquery.query({
@@ -578,12 +579,13 @@ async function getPostgresContentVideosWithBigQueryNames(writerId, dateRange, pa
           params: { writer_name: writerName }
         });
 
-        // Create map of video_id to account names
+        // Create map of video_id to account names and duration
         bigQueryRows.forEach(row => {
           if (row.video_id) {
             bigQueryAccountMap.set(row.video_id, {
               account_name: row.account_name,
-              channel_title: row.channel_title
+              channel_title: row.channel_title,
+              video_duration_seconds: row.video_duration_seconds
             });
           }
         });
@@ -621,24 +623,35 @@ async function getPostgresContentVideosWithBigQueryNames(writerId, dateRange, pa
         });
       }
 
-      // Determine video type based on video_cat or duration
+      // Determine video type based on BigQuery video_duration_seconds (preferred) or fallback to PostgreSQL duration
       let videoType = 'video'; // default
       let isShort = false;
 
-      if (row.video_cat) {
-        // Use existing video_cat logic
+      // First, try to use BigQuery video_duration_seconds for accurate determination
+      if (bigQueryData && bigQueryData.video_duration_seconds !== undefined && bigQueryData.video_duration_seconds !== null) {
+        // Use BigQuery duration in seconds (most accurate)
+        const durationSeconds = parseFloat(bigQueryData.video_duration_seconds);
+        if (durationSeconds <= 180) { // 3 minutes or less
+          videoType = 'short';
+          isShort = true;
+        }
+        console.log(`🎬 Video type determined by BigQuery duration: ${durationSeconds}s = ${videoType}`);
+      } else if (row.video_cat) {
+        // Fallback to existing video_cat logic
         if (row.video_cat.toLowerCase().includes('short')) {
           videoType = 'short';
           isShort = true;
         }
+        console.log(`🎬 Video type determined by video_cat: ${row.video_cat} = ${videoType}`);
       } else if (row.duration) {
-        // Fallback to duration-based logic
+        // Final fallback to PostgreSQL duration parsing
         const durationParts = row.duration.split(':');
         const totalSeconds = parseInt(durationParts[0]) * 60 + parseInt(durationParts[1] || 0);
         if (totalSeconds <= 180) { // 3 minutes or less
           videoType = 'short';
           isShort = true;
         }
+        console.log(`🎬 Video type determined by PostgreSQL duration: ${row.duration} = ${videoType}`);
       }
 
       // Calculate engagement rate
