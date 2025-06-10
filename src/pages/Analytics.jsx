@@ -31,6 +31,9 @@ const formatNumber = (value) => {
   return Math.round(value).toLocaleString(); // Round to the nearest integer and format with commas
 };
 
+
+
+
 // Utility function to format dates for display
 const formatDate = (date) => {
   const parsedDate = dayjs(date);
@@ -229,8 +232,21 @@ const Analytics = () => {
         hasLatestContent: !!combinedData.latestContent,
         progressToTarget: combinedData.summary?.progressToTarget,
         dataSource: 'BigQuery + PostgreSQL',
-        sampleAggregatedData: combinedData.aggregatedViewsData?.[0]
+        sampleAggregatedData: combinedData.aggregatedViewsData?.[0],
+        dateRange: dateRange,
+        isCustomRange: dateRange.startsWith('custom_'),
+        isSingleDate: dateRange.startsWith('custom_') && dateRange.split('_')[1] === dateRange.split('_')[2]
       });
+
+      // Special logging for single date ranges
+      if (dateRange.startsWith('custom_')) {
+        const parts = dateRange.split('_');
+        if (parts.length === 3 && parts[1] === parts[2]) {
+          console.log('📅 SINGLE DATE DETECTED:', parts[1]);
+          console.log('📊 Single date chart data:', combinedData.aggregatedViewsData);
+          console.log('📊 Chart will show:', combinedData.aggregatedViewsData?.length || 0, 'data points');
+        }
+      }
 
       setAnalyticsData(combinedData);
 
@@ -266,32 +282,56 @@ const Analytics = () => {
         hasToken: !!token
       });
 
-      // Convert dateRange to range parameter
+      // Convert dateRange to range parameter and handle custom dates
       let range = '30';
-      switch (dateRange) {
-        case 'last7days':
-          range = '7';
-          break;
-        case 'last30days':
-          range = '30';
-          break;
-        case 'last90days':
-          range = '90';
-          break;
-        case 'last365days':
-          range = '365';
-          break;
-        case 'lifetime':
-          range = 'lifetime';
-          break;
-        default:
-          range = '28';
+      let startDate = null;
+      let endDate = null;
+
+      if (dateRange.startsWith('custom_')) {
+        const parts = dateRange.split('_');
+        if (parts.length === 3) {
+          startDate = parts[1];
+          endDate = parts[2];
+          range = 'custom';
+        }
+      } else {
+        switch (dateRange) {
+          case 'last7days':
+            range = '7';
+            break;
+          case 'last30days':
+            range = '30';
+            break;
+          case 'last90days':
+            range = '90';
+            break;
+          case 'last365days':
+            range = '365';
+            break;
+          case 'lifetime':
+            range = 'lifetime';
+            break;
+          default:
+            range = '28';
+        }
       }
 
-      // Use writer-specific top content endpoint
-      const url = `${buildApiUrl('/api/analytics/writer/top-content')}?writer_id=${writerId}&range=${range}&limit=10&type=${filterType}`;
+      // Fix filter type mapping to match backend expectations
+      let apiFilterType = filterType;
+      if (filterType === 'videos') {
+        apiFilterType = 'content'; // Backend expects 'content' for videos
+      }
+
+      // Build URL with proper parameters - like Content page with 20 videos
+      let url = `${buildApiUrl('/api/analytics/writer/top-content')}?writer_id=${writerId}&range=${range}&limit=20&type=${apiFilterType}`;
+
+      // Add custom date parameters if needed
+      if (startDate && endDate) {
+        url += `&start_date=${startDate}&end_date=${endDate}`;
+      }
+
       console.log('🔗 Top content URL (using writer-specific endpoint):', url);
-      console.log('🔍 Debug - writerId:', writerId, 'range:', range, 'filterType:', filterType);
+      console.log('🔍 Debug - writerId:', writerId, 'range:', range, 'filterType:', filterType, 'apiFilterType:', apiFilterType, 'dates:', { startDate, endDate });
 
       const response = await fetch(url, {
         headers: {
@@ -311,14 +351,35 @@ const Analytics = () => {
 
         if (topContent.length > 0) {
           console.log('📊 Sample top content:', topContent[0]);
-          console.log('📊 All top content views:', topContent.map(v => ({
+
+          // Process the content to ensure proper video type detection and account names
+          const processedContent = topContent.map(video => ({
+            ...video,
+            // Use channel_title as primary account name source
+            account_name: video.channel_title || video.account_name || video.channelTitle || 'Unknown Account',
+            // Trust backend type determination (backend already handles BigQuery duration properly)
+            type: video.type || 'video', // Use backend type, fallback to video
+            // Use backend-formatted duration if available, otherwise format from seconds
+            duration: video.duration || (video.video_duration_seconds && video.video_duration_seconds > 0
+              ? `${Math.floor(video.video_duration_seconds / 60)}:${Math.round(video.video_duration_seconds % 60).toString().padStart(2, '0')}`
+              : '0:00')
+          }));
+
+          console.log('📊 Processed top content with proper types:', processedContent.map(v => ({
             title: v.title,
             views: v.views,
-            account_name: v.account_name || v.channelTitle,
-            writer_name: v.writer_name
+            account_name: v.account_name,
+            type: v.type,
+            duration_seconds: v.video_duration_seconds,
+            duration: v.duration,
+            writer_name: v.writer_name,
+            backend_type: v.type, // Original backend type
+            frontend_override: v.video_duration_seconds && v.video_duration_seconds > 0
+              ? (v.video_duration_seconds < 183 ? 'short' : 'video')
+              : 'no_override'
           })));
 
-          return topContent;
+          return processedContent;
         }
 
         return [];
@@ -329,6 +390,79 @@ const Analytics = () => {
       }
     } catch (error) {
       console.error('❌ Error fetching top content:', error);
+      return [];
+    }
+  };
+
+  // Fetch top content with explicit custom range parameters
+  const fetchTopContentWithCustomRange = async (filterType = contentFilter, customRange, startDate, endDate) => {
+    try {
+      const token = localStorage.getItem('token');
+      let writerId = localStorage.getItem('writerId') || '110';
+
+      console.log('🏆 Fetching top content with explicit custom range:', { customRange, startDate, endDate, filterType });
+
+      // Fix filter type mapping to match backend expectations
+      let apiFilterType = filterType;
+      if (filterType === 'videos') {
+        apiFilterType = 'content'; // Backend expects 'content' for videos
+      }
+
+      // Build URL with explicit custom date parameters
+      let url = `${buildApiUrl('/api/analytics/writer/top-content')}?writer_id=${writerId}&range=custom&limit=20&type=${apiFilterType}`;
+      url += `&start_date=${startDate}&end_date=${endDate}`;
+
+      console.log('🔗 Top content URL with explicit custom range:', url);
+
+      const response = await fetch(url, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      console.log('📡 Top content response status:', response.status, response.statusText);
+
+      if (response.ok) {
+        const result = await response.json();
+        console.log('📊 Top content API response for custom range:', result);
+
+        let topContent = result.data || result || [];
+        console.log('🏆 Top content found for custom range:', topContent.length, 'videos');
+
+        if (topContent.length > 0) {
+          // Process the content to ensure proper video type detection and account names
+          const processedContent = topContent.map(video => ({
+            ...video,
+            // Use channel_title as primary account name source
+            account_name: video.channel_title || video.account_name || video.channelTitle || 'Unknown Account',
+            // Trust backend type determination (backend already handles BigQuery duration properly)
+            type: video.type || 'video', // Use backend type, fallback to video
+            // Use backend-formatted duration if available, otherwise format from seconds
+            duration: video.duration || (video.video_duration_seconds && video.video_duration_seconds > 0
+              ? `${Math.floor(video.video_duration_seconds / 60)}:${Math.round(video.video_duration_seconds % 60).toString().padStart(2, '0')}`
+              : '0:00')
+          }));
+
+          console.log('📊 Processed top content for custom range:', processedContent.map(v => ({
+            title: v.title,
+            views: v.views,
+            account_name: v.account_name,
+            type: v.type,
+            duration: v.duration
+          })));
+
+          return processedContent;
+        }
+
+        return [];
+      } else {
+        const errorText = await response.text();
+        console.error('❌ Top content API error for custom range:', response.status, errorText);
+        return [];
+      }
+    } catch (error) {
+      console.error('❌ Error fetching top content for custom range:', error);
       return [];
     }
   };
@@ -361,12 +495,23 @@ const Analytics = () => {
         console.log('📅 Latest content found:', latestContent?.title || 'None');
 
         if (latestContent) {
-          console.log('📊 Latest content data:', {
-            title: latestContent.title,
-            account_name: latestContent.account_name || latestContent.channelTitle,
-            writer_name: latestContent.writer_name,
-            views: latestContent.views
+          // Process latest content to use channel_title as primary account name
+          const processedLatestContent = {
+            ...latestContent,
+            account_name: latestContent.channel_title || latestContent.account_name || latestContent.channelTitle || 'Unknown Account',
+            // Trust backend type determination (backend already handles duration properly)
+            type: latestContent.type || 'video'
+          };
+
+          console.log('📊 Processed latest content data:', {
+            title: processedLatestContent.title,
+            account_name: processedLatestContent.account_name,
+            writer_name: processedLatestContent.writer_name,
+            views: processedLatestContent.views,
+            type: processedLatestContent.type
           });
+
+          return processedLatestContent;
         }
 
         return latestContent;
@@ -385,7 +530,8 @@ const Analytics = () => {
 
   useEffect(() => {
     console.log('🚀 Analytics useEffect triggered, dateRange:', dateRange);
-    if (dateRange !== "custom") {
+    // Don't auto-fetch for "custom" (when picker is open) or custom ranges (when applied)
+    if (dateRange !== "custom" && !dateRange.startsWith("custom_")) {
       fetchAnalytics();
     }
   }, [dateRange]);
@@ -457,22 +603,111 @@ const Analytics = () => {
 
   // Handle custom date range application
   const handleApplyCustomRange = async () => {
-    if (customStartDate && customEndDate) {
-      // Set a special range value to indicate custom dates
-      const customRange = `custom_${customStartDate}_${customEndDate}`;
-      setDateRange(customRange);
+    if (customStartDate) {
+      // If no end date is provided, use start date as end date (single day)
+      const endDate = customEndDate || customStartDate;
+      const customRange = `custom_${customStartDate}_${endDate}`;
+
+      console.log('📅 Applying custom date range:', customStartDate, 'to', endDate);
+      console.log('📅 Custom range string:', customRange);
+
       setShowCustomDatePicker(false);
       setIsChartLoading(true);
 
-      // Manually trigger data fetch for custom range
+      // Set the date range first
+      setDateRange(customRange);
+
+      // Immediately fetch analytics with the custom range (don't wait for state update)
       try {
-        await fetchAnalytics();
+        await fetchAnalyticsWithCustomRange(customRange, customStartDate, endDate);
+        console.log('🎉 Custom range analytics data updated successfully!');
       } catch (error) {
         console.error("Error fetching data for custom range:", error);
         setError("Failed to load data for custom date range");
       } finally {
         setIsChartLoading(false);
       }
+    }
+  };
+
+  // Fetch analytics with explicit custom range parameters
+  const fetchAnalyticsWithCustomRange = async (customRange, startDate, endDate) => {
+    console.log('🔥 fetchAnalyticsWithCustomRange called with:', { customRange, startDate, endDate });
+    setError(null);
+
+    try {
+      const token = localStorage.getItem('token');
+      let writerId = localStorage.getItem('writerId') || '110';
+
+      if (!token) {
+        setError('Please log in to view analytics');
+        return;
+      }
+
+      console.log('📊 Fetching analytics data for custom range:', { customRange, startDate, endDate, writerId });
+
+      // Build URL with custom date parameters
+      const cacheBuster = Date.now();
+      const randomId = Math.random().toString(36).substring(7);
+      let apiUrl = `${buildApiUrl(API_CONFIG.ENDPOINTS.ANALYTICS.OVERVIEW)}?range=${customRange}&_t=${cacheBuster}&_r=${randomId}&force_refresh=true`;
+      apiUrl += `&start_date=${startDate}&end_date=${endDate}`;
+
+      console.log(`📊 Fetching from custom URL: ${apiUrl}`);
+
+      const overviewResponse = await fetch(apiUrl, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0'
+        }
+      });
+
+      if (overviewResponse.ok) {
+        const overviewData = await overviewResponse.json();
+        console.log('📊 Custom range BigQuery Overview data received:', {
+          totalViews: overviewData.totalViews,
+          chartDataPoints: overviewData.chartData?.length || 0,
+          aggregatedViewsDataPoints: overviewData.aggregatedViewsData?.length || 0
+        });
+
+        // Fetch top content with custom date range (pass the custom range explicitly)
+        const topVideosData = await fetchTopContentWithCustomRange(contentFilter, customRange, startDate, endDate);
+        const latestContentData = await fetchLatestContent();
+
+        // Combine data
+        const combinedData = {
+          ...overviewData,
+          topVideos: topVideosData || [],
+          latestContent: latestContentData,
+          avgDailyViews: overviewData.aggregatedViewsData?.length > 0 ?
+            Math.round(overviewData.totalViews / overviewData.aggregatedViewsData.length) : 0,
+          summary: {
+            progressToTarget: (overviewData.totalViews / 100000000) * 100,
+            highestDay: overviewData.aggregatedViewsData?.length > 0 ?
+              Math.max(...overviewData.aggregatedViewsData.map(d => d.views)) : 0,
+            lowestDay: overviewData.aggregatedViewsData?.length > 0 ?
+              Math.min(...overviewData.aggregatedViewsData.map(d => d.views)) : 0
+          }
+        };
+
+        setAnalyticsData(combinedData);
+        console.log('🎉 Custom range analytics data updated successfully!');
+
+        // Special logging for single date ranges
+        if (startDate === endDate) {
+          console.log('📅 SINGLE DATE APPLIED:', startDate);
+          console.log('📊 Single date chart data:', combinedData.aggregatedViewsData);
+          console.log('📊 Chart will show:', combinedData.aggregatedViewsData?.length || 0, 'data points');
+          console.log('📊 Top content filtered for date:', topVideosData?.length || 0, 'videos');
+        }
+      } else {
+        throw new Error(`API responded with status ${overviewResponse.status}`);
+      }
+    } catch (err) {
+      console.error('❌ Custom range Analytics API error:', err);
+      setError(`Failed to load analytics data: ${err.message}`);
     }
   };
 
@@ -599,7 +834,7 @@ const Analytics = () => {
               </Box>
               <Box>
                 <Typography variant="body2" sx={{ color: "#888", mb: 1 }}>
-                  End Date
+                  End Date (Optional for single day)
                 </Typography>
                 <input
                   type="date"
@@ -619,7 +854,7 @@ const Analytics = () => {
                 <Button
                   variant="contained"
                   onClick={handleApplyCustomRange}
-                  disabled={!customStartDate || !customEndDate}
+                  disabled={!customStartDate}
                   sx={{
                     bgcolor: "#ffb300",
                     color: "black",
@@ -627,7 +862,7 @@ const Analytics = () => {
                     "&:disabled": { bgcolor: "#666", color: "#999" },
                   }}
                 >
-                  Apply
+                  Apply {customEndDate ? "Range" : "Single Day"}
                 </Button>
                 <Button
                   variant="outlined"
@@ -897,7 +1132,7 @@ const Analytics = () => {
                           return `
                             <div style="min-width: 200px;">
                               <div style="font-size: 12px; color: #ccc;">${date}</div>
-                              <div style="font-size: 18px; font-weight: 600; color: #fff;">${formattedValue} views</div>
+                              <div style="font-size: 18px, font-weight: 600; color: #fff;">${formattedValue} views</div>
                             </div>
                           `;
                         }
@@ -928,7 +1163,11 @@ const Analytics = () => {
                       boundaryGap: false,
                       data: analyticsData.aggregatedViewsData?.map(item => formatDate(item.time)) || [],
                       axisLabel: {
-                        formatter: (value, index) => index % 2 === 0 ? value : '',
+                        // For single date, always show the label; for multiple dates, show every other
+                        formatter: (value, index) => {
+                          const dataLength = analyticsData.aggregatedViewsData?.length || 0;
+                          return dataLength === 1 || index % 2 === 0 ? value : '';
+                        },
                         color: '#9e9e9e'
                       },
                       axisLine: {
@@ -950,13 +1189,16 @@ const Analytics = () => {
                     },
                     series: [{
                       data: analyticsData.aggregatedViewsData?.map(item => item.views) || [],
-                      type: 'line', // Line chart for daily totals
-                      smooth: true,
+                      type: analyticsData.aggregatedViewsData?.length === 1 ? 'bar' : 'line', // Use bar chart for single date, line for multiple
+                      smooth: analyticsData.aggregatedViewsData?.length > 1,
                       lineStyle: {
                         color: '#4fc3f7',
                         width: 3
                       },
-                      areaStyle: {
+                      itemStyle: {
+                        color: '#4fc3f7' // For bar chart (single date)
+                      },
+                      areaStyle: analyticsData.aggregatedViewsData?.length > 1 ? {
                         color: {
                           type: 'linear',
                           x: 0,
@@ -968,7 +1210,7 @@ const Analytics = () => {
                             { offset: 1, color: 'rgba(79, 195, 247, 0.05)' },
                           ],
                         },
-                      },
+                      } : undefined,
                       symbol: 'circle',
                       symbolSize: (_, params) => {
                         const dataPoint = analyticsData.aggregatedViewsData?.[params.dataIndex];
@@ -1051,16 +1293,16 @@ const Analytics = () => {
                       All Content
                     </Button>
                     <Button
-                      variant={contentFilter === 'content' ? 'contained' : 'outlined'}
-                      onClick={() => handleContentFilterChange('content')}
+                      variant={contentFilter === 'videos' ? 'contained' : 'outlined'}
+                      onClick={() => handleContentFilterChange('videos')}
                       sx={{
-                        bgcolor: contentFilter === 'content' ? '#E6B800' : 'transparent',
-                        color: contentFilter === 'content' ? 'black' : '#888',
-                        borderColor: contentFilter === 'content' ? '#E6B800' : '#444',
+                        bgcolor: contentFilter === 'videos' ? '#E6B800' : 'transparent',
+                        color: contentFilter === 'videos' ? 'black' : '#888',
+                        borderColor: contentFilter === 'videos' ? '#E6B800' : '#444',
                         textTransform: 'none',
                         fontWeight: 600,
                         '&:hover': {
-                          bgcolor: contentFilter === 'content' ? '#D4A600' : 'rgba(255,255,255,0.05)',
+                          bgcolor: contentFilter === 'videos' ? '#D4A600' : 'rgba(255,255,255,0.05)',
                           borderColor: '#666'
                         }
                       }}
@@ -1234,7 +1476,7 @@ const Analytics = () => {
                                   {content.type === 'short' ? '📱' : '🎬'} •
                                 </Box>
                               )}
-                              {content.account_name || content.channelTitle || content.writer_name || 'Not Available'} • {content.posted_date ? new Date(content.posted_date).toLocaleDateString() : 'Unknown'}
+                              {content.account_name || 'Unknown Account'} • {content.posted_date ? new Date(content.posted_date).toLocaleDateString() : 'Unknown'}
                             </Typography>
                           </Box>
 
@@ -1494,7 +1736,7 @@ const Analytics = () => {
                             <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
                               <Typography variant="caption" sx={{ color: '#888' }}>Account</Typography>
                               <Typography variant="caption" sx={{ color: 'white', fontWeight: 600 }}>
-                                {analyticsData.latestContent.account_name || analyticsData.latestContent.channelTitle || analyticsData.latestContent.writer_name || 'Not Available'}
+                                {analyticsData.latestContent.account_name || 'Unknown Account'}
                               </Typography>
                             </Box>
                             <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
