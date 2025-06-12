@@ -3608,6 +3608,34 @@ router.get('/writer/latest-content', authenticateToken, async (req, res) => {
       engagementRate = Math.min(100, Math.round(engagementRate * 10) / 10);
     }
 
+    // Calculate "Stayed to Watch" from BigQuery retention data if available
+    let stayedToWatch = null;
+    try {
+      const videoId = extractVideoId(row.url);
+      if (videoId) {
+        const retentionQuery = `
+          SELECT AVG(audience_watch_ratio) * 100 AS percent_stayed
+          FROM \`speedy-web-461014-g3.dbt_youtube_analytics.audience_retention_historical\`
+          WHERE video_id = @video_id
+            AND date = (SELECT MAX(date) FROM \`speedy-web-461014-g3.dbt_youtube_analytics.audience_retention_historical\` WHERE video_id = @video_id)
+            AND elapsed_video_time_ratio BETWEEN 0.9 AND 1.0
+        `;
+
+        const retentionOptions = {
+          query: retentionQuery,
+          params: { video_id: videoId }
+        };
+
+        const [retentionRows] = await bigquery.query(retentionOptions);
+        if (retentionRows.length > 0 && retentionRows[0].percent_stayed !== null) {
+          stayedToWatch = parseFloat(retentionRows[0].percent_stayed);
+          console.log(`📊 Stayed to Watch for ${videoId}:`, stayedToWatch.toFixed(1) + '%');
+        }
+      }
+    } catch (retentionError) {
+      console.warn('⚠️ Could not fetch retention data for latest content:', retentionError.message);
+    }
+
     const latestContent = {
       id: row.video_id,
       title: row.title || 'Untitled Video',
@@ -3621,7 +3649,8 @@ router.get('/writer/latest-content', authenticateToken, async (req, res) => {
       publishDate: formattedDate,
       thumbnail: row.preview || `https://img.youtube.com/vi/${extractVideoId(row.url)}/maxresdefault.jpg`,
       duration: duration,
-      engagement: engagementRate
+      engagement: engagementRate,
+      stayedToWatch: stayedToWatch
     };
 
     console.log('📅 Latest content found from PostgreSQL:', latestContent.title);

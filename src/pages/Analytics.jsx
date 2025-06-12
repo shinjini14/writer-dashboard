@@ -1759,6 +1759,15 @@ const Analytics = () => {
                                 </Typography>
                               </Box>
                             </Box>
+                            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                              <Typography variant="caption" sx={{ color: '#888' }}>Stayed to Watch</Typography>
+                              <Typography variant="caption" sx={{ color: 'white', fontWeight: 600 }}>
+                                {analyticsData.latestContent.stayedToWatch ?
+                                  `${analyticsData.latestContent.stayedToWatch.toFixed(1)}%` :
+                                  'N/A'
+                                }
+                              </Typography>
+                            </Box>
                           </Box>
 
                           {/* YouTube URL */}

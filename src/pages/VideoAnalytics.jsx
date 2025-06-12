@@ -820,28 +820,10 @@ const VideoAnalytics = () => {
                           variant="h4"
                           sx={{ color: "#fff", fontWeight: 700, mb: 1 }}
                         >
-                          {Array.isArray(videoData.retentionData) && videoData.retentionData.length > 0 ? (
-                            (() => {
-                              // Calculate % stayed to watch: retention at elapsed_video_time_ratio = 1.0 (end of video)
-                              const endRetention = videoData.retentionData.reduce((best, point) => {
-                                const elapsedRatio = point.elapsed_video_time_ratio || point.rawElapsedRatio || 0;
-                                const audienceWatch = point.audience_watch_ratio || point.rawAudienceWatch || 0;
-                                const dist = Math.abs(elapsedRatio - 1.0);
-
-                                if (dist < best.dist) {
-                                  return { dist, audienceWatch, elapsedRatio };
-                                }
-                                return best;
-                              }, { dist: 1, audienceWatch: 0, elapsedRatio: 0 });
-
-                              return formatPercentage(endRetention.audienceWatch * 100);
-                            })()
-                          ) : (
-                            "No data yet"
-                          )}
+                          {videoData.stayedToWatch ? `${videoData.stayedToWatch.toFixed(1)}%` : "No data yet"}
                         </Typography>
                         <Typography variant="caption" sx={{ color: "#aaa" }}>
-                          Percentage of viewers who reached the end
+                          Percentage of viewers who reached the last 10%
                         </Typography>
                       </Box>
 
@@ -1236,23 +1218,10 @@ const VideoAnalytics = () => {
                             Retention Performance
                           </Typography>
                           <Typography variant="body2" sx={{ color: "#ccc", lineHeight: 1.5 }}>
-                            {Array.isArray(videoData.retentionData) && videoData.retentionData.length > 0 ? (
+                            {videoData.stayedToWatch ? (
                               (() => {
-                                // Calculate % stayed to watch: retention at elapsed_video_time_ratio = 1.0 (end of video)
-                                const endRetention = videoData.retentionData.reduce((best, point) => {
-                                  const elapsedRatio = point.elapsed_video_time_ratio || point.rawElapsedRatio || 0;
-                                  const audienceWatch = point.audience_watch_ratio || point.rawAudienceWatch || 0;
-                                  const dist = Math.abs(elapsedRatio - 1.0);
-
-                                  if (dist < best.dist) {
-                                    return { dist, audienceWatch, elapsedRatio };
-                                  }
-                                  return best;
-                                }, { dist: 1, audienceWatch: 0, elapsedRatio: 0 });
-
-                                const endPercentage = Math.round(endRetention.audienceWatch * 100);
-
-                                return `${endPercentage}% of viewers stayed until the end. ${
+                                const endPercentage = Math.round(videoData.stayedToWatch);
+                                return `${endPercentage}% of viewers stayed to watch the last 10% of the video. ${
                                   endPercentage > 50 ? "Excellent retention!" :
                                   endPercentage > 30 ? "Good retention rate." :
                                   "Consider improving content engagement."
@@ -1490,22 +1459,7 @@ const VideoAnalytics = () => {
                         </Box>
 
                         {/* Stayed to Watch */}
-                        <Box
-                          sx={{
-                            p: 2,
-                            bgcolor: "#3a3a3a",
-                            borderRadius: 1,
-                            border: "1px solid #555",
-                            textAlign: "center"
-                          }}
-                        >
-                          <Typography variant="h6" sx={{ color: "#E91E63", fontWeight: 600 }}>
-                            {videoData.stayedToWatch ? `${videoData.stayedToWatch.toFixed(1)}%` : "N/A"}
-                          </Typography>
-                          <Typography variant="caption" sx={{ color: "#bbb" }}>
-                            Stayed to Watch
-                          </Typography>
-                        </Box>
+                       
                       </Box>
 
                       {/* Additional Stats (if available) */}
