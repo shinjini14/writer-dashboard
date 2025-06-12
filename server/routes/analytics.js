@@ -527,7 +527,23 @@ async function getPostgresContentVideosWithBigQueryNames(writerId, dateRange, pa
     const writerName = writerRows[0].name;
     console.log(`📝 Found writer name: ${writerName} for content videos`);
 
-    // Step 1: Get ALL videos from statistics_youtube_api for the writer (primary source)
+    // Calculate date filter based on dateRange parameter
+    let dateCondition = '';
+    let queryParams = [parseInt(writerId)];
+
+    if (dateRange !== 'lifetime') {
+      const rangeNum = parseInt(dateRange) || 28;
+      const dateFilter = new Date();
+      dateFilter.setDate(dateFilter.getDate() - rangeNum);
+      const dateFilterStr = dateFilter.toISOString().split('T')[0]; // YYYY-MM-DD format
+      dateCondition = 'AND (s.posted_date >= $2 OR s.posted_date IS NULL)';
+      queryParams.push(dateFilterStr);
+      console.log(`📅 Date filter: Last ${rangeNum} days (since ${dateFilterStr})`);
+    } else {
+      console.log(`📅 Date filter: Lifetime (no date restriction)`);
+    }
+
+    // Step 1: Get videos from statistics_youtube_api for the writer with date filtering
     const postgresQuery = `
       SELECT
         v.id,
@@ -548,10 +564,11 @@ async function getPostgresContentVideosWithBigQueryNames(writerId, dateRange, pa
       WHERE v.writer_id = $1
         AND (v.url LIKE '%youtube.com%' OR v.url LIKE '%youtu.be%')
         AND s.video_id IS NOT NULL
+        ${dateCondition}
       ORDER BY s.posted_date DESC NULLS LAST, v.id DESC
     `;
 
-    const { rows: postgresRows } = await pool.query(postgresQuery, [parseInt(writerId)]);
+    const { rows: postgresRows } = await pool.query(postgresQuery, queryParams);
     console.log(`📊 PostgreSQL returned ${postgresRows.length} videos for writer ${writerId}`);
 
     // Step 2: Get duration data from BigQuery for accurate video type determination

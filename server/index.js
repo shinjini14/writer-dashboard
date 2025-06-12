@@ -1641,78 +1641,70 @@ async function getBigQueryAudienceRetention(videoId, writerId) {
     // Transform retention data for frontend using correct BigQuery fields
     console.log(`📊 Sample retention row:`, retentionRows[0]);
 
+    // Get actual video duration from BigQuery duration metrics
+    let actualVideoDurationSeconds = 143; // Default fallback
+    if (durationRows.length > 0 && durationRows[0].video_duration_seconds) {
+      actualVideoDurationSeconds = durationRows[0].video_duration_seconds;
+    }
+
+    console.log(`🕐 Video duration: ${actualVideoDurationSeconds} seconds from BigQuery`);
+
     const retentionData = retentionRows.map((row, index) => {
       // Use elapsed_video_time_ratio for x-axis (time progression 0.0 to 1.0)
       const timeRatio = parseFloat(row.elapsed_video_time_ratio || 0);
 
-      // Convert ratio to actual time format - this will be recalculated with real video duration later
-      // For now, assume a 10-minute video as placeholder
-      const totalSecondsPlaceholder = timeRatio * 600; // 10 minutes = 600 seconds
-      const minutes = Math.floor(totalSecondsPlaceholder / 60);
-      const seconds = Math.floor(totalSecondsPlaceholder % 60);
+      // Convert ratio to actual time format using real video duration
+      const actualSeconds = Math.floor(timeRatio * actualVideoDurationSeconds);
+      const minutes = Math.floor(actualSeconds / 60);
+      const seconds = actualSeconds % 60;
       const timeStr = `${minutes}:${seconds.toString().padStart(2, "0")}`;
 
-      // Use relative_retention_performance for primary line (this video's retention)
-      const thisVideoRetention = Math.round(
-        (row.relative_retention_performance || 0) * 100
-      );
+      // Use audience_watch_ratio for primary line (this video's retention)
+      const audienceRetention = Math.round((row.audience_watch_ratio || 0) * 100);
 
-      // Use audience_watch_ratio for secondary line (typical/average retention)
-      const typicalRetention = Math.round(
-        (row.audience_watch_ratio || 0) * 100
-      );
-
-      // Determine if this is a key moment (significant retention changes)
-      const isKeyMoment = timeRatio >= 0.05 && timeRatio <= 0.15; // Around 30 seconds to 1.5 minutes
-      const keyMomentMarker = isKeyMoment ? thisVideoRetention : null;
+      // Use relative_retention_performance for secondary line (vs YouTube average)
+      const relativePerformance = row.relative_retention_performance ?
+        Math.round(row.relative_retention_performance * 100) : null;
 
       // Log first few data points for debugging
       if (index < 5) {
         console.log(
-          `📊 Data point ${index}: timeRatio=${timeRatio.toFixed(
-            3
-          )}, thisVideo=${thisVideoRetention}%, typical=${typicalRetention}%, time=${timeStr}`
+          `🕐 Time conversion ${index}: ratio=${timeRatio.toFixed(3)} → ${actualSeconds}s → ${timeStr}`
         );
       }
 
       return {
         time: timeStr,
-        timeRatio: timeRatio,
-        percentage: thisVideoRetention, // Primary line: relative_retention_performance
-        typicalRetention: typicalRetention, // Secondary line: audience_watch_ratio
-        keyMomentMarker: keyMomentMarker, // Key moment markers
-        isKeyMoment: isKeyMoment,
-        // Keep raw values for debugging
+        elapsed_video_time_ratio: timeRatio,
+        audience_watch_ratio: row.audience_watch_ratio,
+        relative_retention_performance: row.relative_retention_performance,
+        // Keep raw values for debugging and frontend processing
         rawElapsedRatio: row.elapsed_video_time_ratio,
         rawRetentionPerf: row.relative_retention_performance,
         rawAudienceWatch: row.audience_watch_ratio,
       };
     });
 
-    // Calculate key metrics from real retention data
-    const avgRetention =
-      retentionData.reduce((sum, point) => sum + point.percentage, 0) /
-      retentionData.length;
-
-    // "Stayed to watch" - retention at around 30% through the video
-    // 1) Compute stayedToWatch from the retention curve
+    // Calculate "stayed to watch" - percentage of viewers who reached the end of the video
+    // This is retention at elapsed_video_time_ratio = 1.0 (or closest to it)
     let stayedToWatch = 0;
     if (retentionRows.length) {
-      // find the point closest to 50% of the video
-      const midPoint = retentionRows.reduce(
+      // Find the point closest to the end of the video (elapsed_video_time_ratio = 1.0)
+      const endPoint = retentionRows.reduce(
         (best, row) => {
           const ratio = parseFloat(row.elapsed_video_time_ratio);
           const watch = parseFloat(row.audience_watch_ratio);
-          const dist = Math.abs(ratio - 0.5);
+          const dist = Math.abs(ratio - 1.0);
           if (dist < best.dist) {
-            return { dist, watch };
+            return { dist, watch, ratio };
           }
           return best;
         },
-        { dist: 1, watch: 0 }
+        { dist: 1, watch: 0, ratio: 0 }
       );
 
-      stayedToWatch = Math.round(midPoint.watch * 100);
+      stayedToWatch = Math.round(endPoint.watch * 100);
+      console.log(`📊 Stayed to watch calculation: ${stayedToWatch}% at ratio ${endPoint.ratio.toFixed(3)}`);
     }
 
     // 1b) new “global” metrics:
@@ -1786,7 +1778,7 @@ async function getBigQueryAudienceRetention(videoId, writerId) {
     let videoDurationSeconds = null;
     let averageViewDurationSeconds = null;
     let averageViewDurationPercentage = null;
-    let avgViewDurationFromReport = avgViewDuration; // fallback to calculated
+    let avgViewDurationFromReport = "0:00"; // Default fallback
 
     if (durationRows.length > 0) {
       const durationData = durationRows[0];

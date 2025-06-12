@@ -916,7 +916,7 @@ const Analytics = () => {
             }}
           >
             <Tab label="Overview" />
-            <Tab label="Trends" />
+            
           </Tabs>
         </Box>
 
