@@ -122,6 +122,17 @@ const VideoAnalytics = () => {
           console.log("  - Watch Time:", formatDuration(response.data.metrics.watchTimeMinutes));
         }
 
+        // Parse video duration to seconds for calculations
+        const videoDurationSeconds = response.data.videoDurationSeconds || (() => {
+          if (response.data.duration) {
+            const parts = response.data.duration.split(':');
+            if (parts.length === 2) {
+              return parseInt(parts[0]) * 60 + parseInt(parts[1]);
+            }
+          }
+          return null;
+        })();
+
         // Add default values for subscriber data if not provided
         const enhancedData = {
           ...response.data,
@@ -129,8 +140,9 @@ const VideoAnalytics = () => {
           subscribersGained: response.data.subscribersGained || Math.floor(response.data.views * 0.02) || 0,
           subscribersLost: response.data.subscribersLost || Math.floor(response.data.views * 0.005) || 0,
           shares: response.data.shares || Math.floor(response.data.likes * 0.1) || 0,
-          // Calculate "Stayed to Watch" from retention data
-          stayedToWatch: calculateStayedToWatch(response.data.retentionData),
+          // Calculate "Stayed to Watch" from retention data at 30-second mark
+          stayedToWatch: calculateStayedToWatch(response.data.retentionData, videoDurationSeconds),
+          videoDurationSeconds: videoDurationSeconds,
         };
 
         setVideoData(enhancedData);
@@ -259,24 +271,33 @@ const VideoAnalytics = () => {
     return ((likes / views) * 100).toFixed(2);
   };
 
-  // Calculate "Stayed to Watch" - % of viewers who reached the last 10% of the video
-  const calculateStayedToWatch = (retentionData) => {
-    if (!retentionData || !Array.isArray(retentionData) || retentionData.length === 0) {
+  // Calculate "Stayed to Watch" - % of viewers who reached the 30-second mark
+  const calculateStayedToWatch = (retentionData, videoDurationSeconds) => {
+    if (!retentionData || !Array.isArray(retentionData) || retentionData.length === 0 || !videoDurationSeconds) {
       return null;
     }
 
-    // Filter retention data for the last 10% of the video (elapsed_video_time_ratio between 0.9 and 1.0)
-    const lastTenPercent = retentionData.filter(
-      point => point.elapsed_video_time_ratio >= 0.9 && point.elapsed_video_time_ratio <= 1.0
-    );
+    // Find the retention data point closest to 30 seconds
+    let closestPoint = null;
+    let minDistance = Infinity;
 
-    if (lastTenPercent.length === 0) {
+    retentionData.forEach(point => {
+      const elapsedRatio = point.elapsed_video_time_ratio || 0;
+      const elapsedSeconds = elapsedRatio * videoDurationSeconds;
+      const distance = Math.abs(elapsedSeconds - 30);
+
+      if (distance < minDistance) {
+        minDistance = distance;
+        closestPoint = point;
+      }
+    });
+
+    if (!closestPoint) {
       return null;
     }
 
-    // Calculate average audience_watch_ratio for the last 10% and convert to percentage
-    const avgWatchRatio = lastTenPercent.reduce((sum, point) => sum + (point.audience_watch_ratio || 0), 0) / lastTenPercent.length;
-    return avgWatchRatio * 100;
+    // Return the audience_watch_ratio at 30 seconds as percentage
+    return (closestPoint.audience_watch_ratio || 0) * 100;
   };
 
   const calculateRetentionRate = (avgViewDuration, totalDuration) => {
@@ -964,138 +985,133 @@ const VideoAnalytics = () => {
                             sampleData: Array.isArray(videoData.retentionData) ? videoData.retentionData.slice(0, 3) : null
                           });
 
-                          // Process the retention data for the chart
+                          // Process retention data for Altair chart with separate lines per date
                           const chartData = videoData.retentionData.map(point => {
-                            // Handle both old and new data formats
                             const elapsedRatio = point.elapsed_video_time_ratio || point.rawElapsedRatio || 0;
                             const audienceWatch = point.audience_watch_ratio || point.rawAudienceWatch || 0;
-                            const relativePerf = point.relative_retention_performance || point.rawRetentionPerf || null;
+                            const date = point.snapshot_date || point.date || 'Latest';
+
+                            // Calculate elapsed time in seconds using video duration
+                            const elapsedSeconds = videoData.videoDurationSeconds ?
+                              Math.round(elapsedRatio * videoData.videoDurationSeconds) :
+                              Math.round(elapsedRatio * 180); // fallback to 3 minutes
 
                             return {
-                              elapsed_video_time_ratio: elapsedRatio,
+                              elapsed_video_time_seconds: elapsedSeconds,
                               audience_watch_ratio: audienceWatch,
-                              relative_retention_performance: relativePerf,
-                              timeLabel: `${Math.round(elapsedRatio * 100)}%`,
-                              audienceRetention: Math.round(audienceWatch * 100),
-                              relativePerformance: relativePerf ? Math.round(relativePerf * 100) : null,
-                              time: point.time || `${Math.round(elapsedRatio * 100)}%`
+                              date: date
                             };
                           });
 
-                          console.log('📊 Chart Data Sample:', chartData.slice(0, 3));
+                          console.log('📊 Altair Chart Data Sample:', chartData.slice(0, 3));
+
+                          // Create Altair specification
+                          const altairSpec = {
+                            "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+                            "title": {
+                              "text": "Average Audience Retention (Aggregated) by Elapsed Video Time (Seconds)",
+                              "color": "#aaa",
+                              "fontSize": 14,
+                              "anchor": "start"
+                            },
+                            "width": "container",
+                            "height": 300,
+                            "background": "#1a1a1a",
+                            "data": {
+                              "values": chartData
+                            },
+                            "layer": [
+                              {
+                                "mark": {
+                                  "type": "line",
+                                  "point": true,
+                                  "strokeWidth": 2
+                                },
+                                "encoding": {
+                                  "x": {
+                                    "field": "elapsed_video_time_seconds",
+                                    "type": "quantitative",
+                                    "title": "Elapsed Video Time (Seconds)",
+                                    "axis": {
+                                      "labelColor": "#aaa",
+                                      "titleColor": "#aaa",
+                                      "grid": false,
+                                      "domainColor": "#aaa"
+                                    }
+                                  },
+                                  "y": {
+                                    "field": "audience_watch_ratio",
+                                    "type": "quantitative",
+                                    "title": "Average Audience Watch Ratio",
+                                    "axis": {
+                                      "labelColor": "#aaa",
+                                      "titleColor": "#aaa",
+                                      "gridColor": "#444",
+                                      "domainColor": "#aaa"
+                                    }
+                                  },
+                                  "color": {
+                                    "field": "date",
+                                    "type": "nominal",
+                                    "scale": {
+                                      "range": ["#00E5FF", "#FFB300", "#4CAF50", "#FF5722", "#9C27B0"]
+                                    },
+                                    "legend": {
+                                      "title": "Date",
+                                      "titleColor": "#aaa",
+                                      "labelColor": "#aaa"
+                                    }
+                                  },
+                                  "tooltip": [
+                                    {"field": "elapsed_video_time_seconds", "type": "quantitative", "title": "Time (seconds)"},
+                                    {"field": "audience_watch_ratio", "type": "quantitative", "title": "Retention", "format": ".2%"},
+                                    {"field": "date", "type": "nominal", "title": "Date"}
+                                  ]
+                                }
+                              },
+                              {
+                                "mark": {
+                                  "type": "rule",
+                                  "color": "#ff4444",
+                                  "strokeDash": [5, 5],
+                                  "strokeWidth": 2
+                                },
+                                "encoding": {
+                                  "x": {"datum": 30}
+                                }
+                              },
+                              {
+                                "mark": {
+                                  "type": "text",
+                                  "align": "center",
+                                  "baseline": "bottom",
+                                  "dx": 0,
+                                  "dy": -5,
+                                  "color": "#ff4444",
+                                  "fontSize": 12
+                                },
+                                "encoding": {
+                                  "x": {"datum": 30},
+                                  "y": {"datum": Math.max(...chartData.map(d => d.audience_watch_ratio))},
+                                  "text": {"datum": "30s"}
+                                }
+                              }
+                            ]
+                          };
 
                           return (
-                            <ResponsiveContainer width="100%" height="90%">
-                              <LineChart
-                                data={chartData}
-                            margin={{ top: 20, right: 30, left: 20, bottom: 80 }}
-                          >
-                            <CartesianGrid
-                              strokeDasharray="2,2"
-                              stroke="#444"
-                              opacity={0.3}
-                            />
-                            <XAxis
-                              dataKey="elapsed_video_time_ratio"
-                              stroke="#aaa"
-                              tick={{ fill: "#aaa", fontSize: 11 }}
-                              tickFormatter={(value) => `${Math.round(value * 100)}%`}
-                              interval="preserveStartEnd"
-                              domain={[0, 1]}
-                              type="number"
-                              label={{
-                                value: "Video Progress",
-                                position: "insideBottom",
-                                offset: -15,
-                                style: {
-                                  textAnchor: "middle",
-                                  fill: "#aaa",
-                                  fontSize: "13px",
-                                  fontWeight: "500"
-                                },
-                              }}
-                            />
-                            <YAxis
-                              stroke="#aaa"
-                              tick={{ fill: "#aaa", fontSize: 11 }}
-                              domain={[0, 'dataMax + 10']}
-                              tickFormatter={(value) => `${value}%`}
-                              label={{
-                                value: "Audience Retention",
-                                angle: -90,
-                                position: "insideLeft",
-                                style: {
-                                  textAnchor: "middle",
-                                  fill: "#aaa",
-                                  fontSize: "13px",
-                                  fontWeight: "500"
-                                },
-                              }}
-                            />
-                            <Tooltip
-                              contentStyle={{
-                                backgroundColor: "#1a1a1a",
-                                border: "1px solid #555",
-                                borderRadius: "8px",
-                                color: "white",
-                                boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
-                                padding: "12px",
-                                fontSize: "12px"
-                              }}
-                              formatter={(value, name) => {
-                                if (name === "audienceRetention") {
-                                  return [`${value}%`, "This Video"];
+                            <div
+                              id="altair-retention-chart"
+                              style={{ width: '100%', height: '100%' }}
+                              ref={(el) => {
+                                if (el && window.vegaEmbed) {
+                                  window.vegaEmbed(el, altairSpec, {
+                                    theme: 'dark',
+                                    actions: false
+                                  }).catch(console.error);
                                 }
-                                if (name === "relativePerformance") {
-                                  return [`${value}%`, "vs YouTube Average"];
-                                }
-                                return [`${value}%`, name];
-                              }}
-                              labelFormatter={(label) => `${Math.round(label * 100)}% through video`}
-                              labelStyle={{
-                                color: "#ffb300",
-                                fontWeight: "600",
-                                marginBottom: "6px",
-                                fontSize: "13px"
                               }}
                             />
-
-                            {/* Primary Line: This Video's Retention */}
-                            <Line
-                              type="monotone"
-                              dataKey="audienceRetention"
-                              stroke="#00E5FF"
-                              strokeWidth={2.5}
-                              dot={false}
-                              activeDot={{
-                                r: 5,
-                                stroke: "#00E5FF",
-                                strokeWidth: 2,
-                                fill: "#00E5FF"
-                              }}
-                              name="audienceRetention"
-                            />
-
-                            {/* Secondary Line: Relative Performance vs YouTube Average */}
-                            {Array.isArray(videoData.retentionData) && videoData.retentionData.some(point => point.relative_retention_performance) && (
-                              <Line
-                                type="monotone"
-                                dataKey="relativePerformance"
-                                stroke="#FFB300"
-                                strokeWidth={2}
-                                strokeDasharray="6,3"
-                                dot={false}
-                                activeDot={{
-                                  r: 4,
-                                  stroke: "#FFB300",
-                                  strokeWidth: 2,
-                                  fill: "#FFB300"
-                                }}
-                                name="relativePerformance"
-                              />
-                            )}
-                          </LineChart>
-                        </ResponsiveContainer>
                           );
                         })()
                       ) : (
@@ -1220,11 +1236,12 @@ const VideoAnalytics = () => {
                           <Typography variant="body2" sx={{ color: "#ccc", lineHeight: 1.5 }}>
                             {videoData.stayedToWatch ? (
                               (() => {
-                                const endPercentage = Math.round(videoData.stayedToWatch);
-                                return `${endPercentage}% of viewers stayed to watch the last 10% of the video. ${
-                                  endPercentage > 50 ? "Excellent retention!" :
-                                  endPercentage > 30 ? "Good retention rate." :
-                                  "Consider improving content engagement."
+                                const thirtySecPercentage = Math.round(videoData.stayedToWatch);
+                                return `${thirtySecPercentage}% of viewers stayed to watch at the 30-second mark. ${
+                                  thirtySecPercentage > 70 ? "Excellent early retention!" :
+                                  thirtySecPercentage > 50 ? "Good early engagement." :
+                                  thirtySecPercentage > 30 ? "Moderate early retention." :
+                                  "Consider improving your hook and opening."
                                 }`;
                               })()
                             ) : (
