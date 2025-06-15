@@ -3815,10 +3815,10 @@ router.get('/test-new-bigquery', async (req, res) => {
   }
 });
 
-// Realtime analytics endpoint - Last 24 hours hourly data
+// Realtime analytics endpoint - Last 72 hours hourly data
 router.get('/realtime', authenticateToken, async (req, res) => {
   try {
-    const { hours = 24 } = req.query;
+    const { hours = 72 } = req.query;
     const userId = req.user.id;
 
     console.log(`⚡ Realtime analytics requested for user ${userId}, last ${hours} hours`);
@@ -3838,7 +3838,7 @@ router.get('/realtime', authenticateToken, async (req, res) => {
 
     console.log(`⚡ Found writer: ${writer.name} (ID: ${writerId})`);
 
-    // Calculate time range for last 24 hours
+    // Calculate time range for last 72 hours
     const endTime = new Date();
     const startTime = new Date(endTime.getTime() - (parseInt(hours) * 60 * 60 * 1000));
 
@@ -3857,7 +3857,7 @@ router.get('/realtime', authenticateToken, async (req, res) => {
       // Query to get hourly view increments (not cumulative totals) from InfluxDB
 const flux = `
     from(bucket: "youtube_api")
-        |> range(start: -25h, stop: -1h)
+        |> range(start: -73h, stop: -1h)
         |> filter(fn: (r) =>
              r._measurement == "views" and
              r._field       == "views" and
@@ -3871,7 +3871,7 @@ const flux = `
         |> aggregateWindow(every: 1h, fn: sum, createEmpty: false)
         |> keep(columns: ["_time", "_value"])
         |> sort(columns: ["_time"])
-        |> limit(n: 24)
+        |> limit(n: 72)
 `;
 
 
@@ -3928,8 +3928,8 @@ const flux = `
       totalViews = 0;
     }
 
-    // Format chart data for the widget (last 24 bars representing hourly data)
-    const chartData = hourlyData.slice(-24).map((item) => {
+    // Format chart data for the widget (last 72 bars representing hourly data)
+    const chartData = hourlyData.slice(-72).map((item) => {
       const date = new Date(item.time);
       // Convert UTC to EST for display
       const estDate = new Date(date.getTime() - (5 * 60 * 60 * 1000));

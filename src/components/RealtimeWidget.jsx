@@ -24,7 +24,7 @@ const RealtimeWidget = () => {
           'Content-Type': 'application/json'
         },
         params: {
-          hours: 24
+          hours: 72
         }
       });
 
@@ -93,8 +93,8 @@ const RealtimeWidget = () => {
       borderRadius: '12px',
       border: '1px solid #333',
       p: 3,
-      width: '280px',
-      height: '320px',
+      width: '100%',
+      height: '400px',
       display: 'flex',
       flexDirection: 'column'
     }}>
@@ -134,12 +134,12 @@ const RealtimeWidget = () => {
           {formatNumber(realtimeData?.totalViews || 0)}
         </Typography>
         <Typography variant="body2" sx={{ color: '#888', fontSize: '14px' }}>
-          Views • Last 24 hours
+          Views • Last 72 hours
         </Typography>
       </Box>
 
       {/* Mini Bar Chart */}
-      <Box sx={{ flex: 1, minHeight: '120px' }}>
+      <Box sx={{ flex: 1, minHeight: '200px' }}>
         <ReactECharts
           option={{
             grid: {
